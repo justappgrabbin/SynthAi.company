@@ -1,0 +1,1 @@
+// Shared SimAgent logic placeholder
