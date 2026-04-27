@@ -82,15 +82,9 @@ export type MorphBackendContextValue = MorphBackendState & {
   invokeAgent: (agentId: number | string, payload: unknown) => Promise<unknown>;
 };
 
-const DEFAULT_API_URL =
-  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SYNTHIA_API_URL) ||
-  (typeof process !== 'undefined' && (process as any).env?.REACT_APP_SYNTHIA_URL) ||
-  'https://synthia-server-1.onrender.com';
-
-const PUBLIC_WS_URL =
-  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SYNTHIA_WS_URL) ||
-  (typeof process !== 'undefined' && (process as any).env?.REACT_APP_SYNTHIA_WS) ||
-  '';
+const FALLBACK_API_URL = 'https://synthia-server.onrender.com';
+const DEFAULT_API_URL = process.env.NEXT_PUBLIC_SYNTHIA_API_URL || process.env.NEXT_PUBLIC_SYNTHIA_SERVER_URL || FALLBACK_API_URL;
+const PUBLIC_WS_URL = process.env.NEXT_PUBLIC_SYNTHIA_WS_URL || '';
 
 const MorphBackendContext = createContext<MorphBackendContextValue | null>(null);
 
@@ -100,13 +94,11 @@ function normalizeBase(url: string): string {
 
 function getStoredApiBase(): string {
   if (typeof window === 'undefined') return DEFAULT_API_URL;
-  return window.localStorage.getItem('morphos_api_url') || DEFAULT_API_URL;
+  return window.localStorage.getItem('morphos_api_url') || window.localStorage.getItem('synthia_server') || DEFAULT_API_URL;
 }
 
 function getAdminSessionHeader(): string {
   if (typeof window === 'undefined') return '';
-  // This is not a service secret. It should only be a user/admin session token
-  // or temporary gate token accepted by Synthia-server.
   return window.localStorage.getItem('morphos_admin_key') || '';
 }
 
@@ -155,7 +147,10 @@ export function MorphBackendProvider({ children }: { children: React.ReactNode }
   const setApiBase = useCallback((url: string) => {
     const normalized = normalizeBase(url);
     setApiBaseState(normalized);
-    if (typeof window !== 'undefined') window.localStorage.setItem('morphos_api_url', normalized);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('morphos_api_url', normalized);
+      window.localStorage.setItem('synthia_server', normalized);
+    }
   }, []);
 
   const refreshCapabilities = useCallback(async () => {
