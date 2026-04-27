@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useMemo, useState } from 'react';
 import { MorphBackendProvider, useMorphBackend, type IntegrationMode } from './MorphOS_Backend_Secure';
 
