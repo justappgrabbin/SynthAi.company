@@ -1,0 +1,1 @@
+MorphOS live shell write test
