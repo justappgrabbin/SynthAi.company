@@ -18,19 +18,42 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install unzip
-        run: sudo apt-get update && sudo apt-get install -y unzip
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y unzip jq
 
-      - name: Unzip uploads only
+      - name: Unzip uploads and create intake manifest
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
           found=0
+          mkdir -p uploads
+          manifest="uploads/_manifest.json"
+          tmp_manifest="uploads/_manifest.tmp.json"
+          echo '[]' > "$tmp_manifest"
+
+          classify_file() {
+            local file="$1"
+            local lower
+            lower=$(echo "$file" | tr '[:upper:]' '[:lower:]')
+            case "$lower" in
+              *.tsx|*.jsx) echo "react_component" ;;
+              *.ts|*.js|*.mjs|*.cjs) echo "code_module" ;;
+              *.html) echo "html_app" ;;
+              *.css|*.scss) echo "style" ;;
+              *.json|*.toml|*.yml|*.yaml|*.env.example) echo "config" ;;
+              *.sql) echo "database_schema" ;;
+              *.md|*.txt) echo "document" ;;
+              *.onnx|*.pt|*.gguf|*.safetensors) echo "model" ;;
+              *.png|*.jpg|*.jpeg|*.gif|*.webp|*.svg) echo "asset_image" ;;
+              *) echo "asset" ;;
+            esac
+          }
 
           for zipfile in uploads/*.zip; do
             found=1
             dir="${zipfile%.zip}"
+            zip_name=$(basename "$zipfile")
             echo "Unzipping: $zipfile -> $dir"
             mkdir -p "$dir"
             unzip -o "$zipfile" -d "$dir"
@@ -45,13 +68,48 @@ jobs:
               mv "$subdir"/* "$dir"/ || true
               rmdir "$subdir" || true
             fi
+
+            file_index="[]"
+            while IFS= read -r file; do
+              rel="${file#./}"
+              size=$(wc -c < "$file" | tr -d ' ')
+              hash=$(sha256sum "$file" | awk '{print $1}')
+              kind=$(classify_file "$file")
+              file_index=$(jq \
+                --arg path "$rel" \
+                --arg kind "$kind" \
+                --arg hash "$hash" \
+                --argjson size "$size" \
+                '. + [{path:$path, kind:$kind, size:$size, sha256:$hash}]' <<< "$file_index")
+            done < <(find "$dir" -type f | sort)
+
+            tmp=$(mktemp)
+            jq \
+              --arg source_zip "$zip_name" \
+              --arg extracted_to "$dir" \
+              --arg ingested_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              --argjson files "$file_index" \
+              '. + [{source_zip:$source_zip, extracted_to:$extracted_to, ingested_at:$ingested_at, file_count:($files | length), files:$files}]' \
+              "$tmp_manifest" > "$tmp"
+            mv "$tmp" "$tmp_manifest"
           done
 
           if [ "$found" = "0" ]; then
             echo "No uploads/*.zip files found. Nothing to extract."
           fi
 
-      - name: Commit extracted contents
+          if [ -f "$manifest" ]; then
+            jq -s 'add' "$manifest" "$tmp_manifest" > uploads/_manifest.merged.json
+            mv uploads/_manifest.merged.json "$manifest"
+          else
+            mv "$tmp_manifest" "$manifest"
+          fi
+
+          rm -f "$tmp_manifest"
+          echo "Morph intake manifest:"
+          jq '.' "$manifest"
+
+      - name: Commit extracted contents and manifest
         shell: bash
         run: |
           git config user.name "github-actions"
@@ -60,6 +118,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No extracted changes to commit."
           else
-            git commit -m "Unzip uploaded archives [skip ci]"
+            git commit -m "Unzip uploaded archives and update Morph intake manifest"
             git push
           fi
