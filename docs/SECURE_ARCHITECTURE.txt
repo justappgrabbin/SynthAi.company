@@ -1,0 +1,60 @@
+CORRECTED SECURE ARCHITECTURE — Secrets Stay on Server
+
+BROWSER / PHONE
+
+MorphOS.tsx and MorphOS_Backend_Secure.tsx run in the browser.
+
+The frontend may know:
+- Public Synthia-server URL
+- Public WebSocket URL
+- Public Supabase URL / anon key if used
+- Temporary user/admin session header if needed
+
+The frontend must not know:
+- Neo4j credentials
+- GitHub token
+- Render or Netlify deploy tokens
+- Trident internal keys
+- Supabase service_role key
+- Database passwords
+
+SYNTHIA-SERVER
+
+Synthia-server is the secure backend gateway and secret vault.
+
+Synthia-server may hold:
+- Neo4j URI, username, password
+- Supabase service_role key
+- Trident internal API key
+- GitHub token
+- Render / Netlify deployment tokens
+- Other private credentials
+
+Frontend can ask. Synthia-server can act.
+
+PUBLIC FRONTEND CALLS
+
+GET  /health
+POST /api/ingest
+GET  /api/capabilities
+POST /api/integrate
+POST /api/orchestrator/build-plan
+POST /api/knowledge/search
+POST /api/deploy/request
+POST /api/agents/:id/invoke
+WS   /api/ws
+
+CORRECT DATA FLOW
+
+1. User drops file or requests integration inside MorphOS.
+2. Frontend sends request to Synthia-server.
+3. Synthia-server stores uploads and queues jobs.
+4. Synthia-server calls Trident for analysis / MIR generation.
+5. Synthia-server writes relationships to Neo4j.
+6. Synthia-server syncs safe state to Supabase if needed.
+7. Synthia-server broadcasts progress over WebSocket.
+8. MorphOS updates the UI with the new capability.
+
+RULE
+
+Never put service secrets in browser code. Browser storage is not a vault.
