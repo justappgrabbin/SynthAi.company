@@ -1,0 +1,245 @@
+name: Morph Auto-Wire
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - '.github/workflows/**'
+      - 'wiring.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  morph_wire:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install scanner dependencies
+        run: npm install @supabase/supabase-js fast-glob
+
+      - name: Extract archives
+        shell: bash
+        run: |
+          find . -name "*.zip" -not -path "./.git/*" -not -path "./node_modules/*" | while read z; do
+            target_dir="${z%.zip}"
+            mkdir -p "$target_dir"
+            if unzip -o "$z" -d "$target_dir" >/dev/null 2>&1; then
+              echo "Extracted $z to $target_dir"
+            else
+              echo "Could not extract $z"
+            fi
+          done
+
+      - name: Scan Morph wiring
+        run: |
+          cat > morph_scanner.mjs <<'SCANNER'
+          import fs from 'fs'
+          import path from 'path'
+          import crypto from 'crypto'
+          import { globSync } from 'fast-glob'
+
+          const patterns = {
+            trident_gnn: ['trident', 'gnn', 'graphneuralnetwork', 'messagepassing'],
+            synthia: ['synthia', 'consciousness', 'awareness', 'cognitive_loop'],
+            substrate_mesh: ['substrate', 'mesh', 'self_addressing', 'node_address'],
+            mir_engine: ['mir', 'intermediaterepresentation', 'morph_runtime'],
+            morph_os: ['morphos', 'morph_os', 'morphbeing', 'orchestrator', 'morph.init'],
+            supabase_connector: ['supabase', 'createclient', 'supabase_url', 'from('],
+            github_connector: ['github', 'octokit', 'github_token'],
+            neo4j_schema: ['neo4j', 'cypher', 'match (n)', 'create (n:'],
+            morph_ui: ['react', 'usestate', 'useeffect', 'morph_interface'],
+            agent_system: ['agent', 'autonomous', 'migration', 'replicate'],
+            codon_system: ['codon', 'hexagram', 'gate', 'i_ching', 'iching']
+          }
+
+          const skip = ['node_modules', '.git', '.next', 'dist', 'build']
+          const allFiles = globSync(['**/*', '!node_modules/**', '!.git/**', '!.next/**', '!dist/**', '!build/**', '!wiring.json'], { dot: true })
+
+          function readText(file) {
+            try {
+              const stat = fs.statSync(file)
+              if (stat.size > 2_000_000) return ''
+              return fs.readFileSync(file, 'utf8')
+            } catch {
+              return ''
+            }
+          }
+
+          function hash(content) {
+            return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16)
+          }
+
+          function detectType(content, filepath) {
+            const body = `${filepath} ${content}`.toLowerCase()
+            let best = { type: 'asset', score: 0 }
+            for (const [type, words] of Object.entries(patterns)) {
+              let score = 0
+              for (const word of words) if (body.includes(word)) score += 1
+              if (score > best.score) best = { type, score }
+            }
+            if (best.score > 0) return best.type
+            if (/export\s+default|module\.exports/.test(content)) return 'module'
+            if (/import\s|require\(/.test(content)) return 'consumer'
+            if (filepath.endsWith('.json')) return 'config'
+            if (/\.css$|\.scss$/.test(filepath)) return 'style'
+            return 'asset'
+          }
+
+          function extractExports(content) {
+            const out = []
+            const regexes = [
+              /export\s+(?:default\s+)?(?:class|function|const|let|var|interface|type)\s+(\w+)/g,
+              /module\.exports\s*=\s*(\w+)/g,
+              /export\s*{\s*([^}]+)\s*}/g
+            ]
+            for (const regex of regexes) {
+              let m
+              while ((m = regex.exec(content))) out.push(String(m[1]).replace(/\s/g, '').split(',')[0])
+            }
+            return [...new Set(out)]
+          }
+
+          function extractImports(content) {
+            const out = []
+            const regexes = [/from\s+['"]([^'"]+)['"]/g, /require\(['"]([^'"]+)['"]\)/g]
+            for (const regex of regexes) {
+              let m
+              while ((m = regex.exec(content))) out.push(m[1])
+            }
+            return [...new Set(out)]
+          }
+
+          function extractTags(content) {
+            const tagWords = ['trident', 'gnn', 'synthia', 'substrate', 'mir', 'morph', 'agent', 'codon', 'hexagram', 'gate', 'orchestrator', 'supabase', 'neo4j']
+            const lower = content.toLowerCase()
+            return tagWords.filter(tag => lower.includes(tag))
+          }
+
+          const files = []
+          for (const filepath of allFiles) {
+            if (skip.some(part => filepath.includes(part + '/'))) continue
+            let stat
+            try { stat = fs.statSync(filepath) } catch { continue }
+            if (stat.isDirectory()) continue
+            const content = readText(filepath)
+            const name = path.basename(filepath)
+            const type = detectType(content, filepath)
+            files.push({
+              path: filepath,
+              name,
+              type,
+              hash: hash(content || filepath),
+              size: stat.size,
+              exports: extractExports(content),
+              imports: extractImports(content),
+              tags: extractTags(content),
+              has_init: /init\s*\(|\.init\s*\(/.test(content)
+            })
+          }
+
+          const graph = { nodes: [], edges: [] }
+          for (const file of files) {
+            graph.nodes.push({ id: file.path, type: file.type, exports: file.exports, tags: file.tags })
+            for (const imp of file.imports) graph.edges.push({ from: file.path, to: imp, type: imp.startsWith('.') ? 'relative_import' : 'package_import' })
+          }
+
+          const present = [...new Set(files.map(f => f.type))]
+          const required = ['morph_os', 'supabase_connector']
+          const recommended = ['trident_gnn', 'synthia', 'substrate_mesh', 'mir_engine', 'agent_system']
+          const gaps = [...required, ...recommended]
+            .filter(type => !present.includes(type))
+            .map(type => ({ severity: required.includes(type) ? 'critical' : 'recommended', missing: type, auto_fix: false }))
+
+          const referenced = new Set(graph.edges.map(e => e.to))
+          const orphans = files.filter(f => f.exports.length && !referenced.has(f.path)).map(f => f.path)
+
+          const report = {
+            scanned_at: new Date().toISOString(),
+            repo: process.env.GITHUB_REPOSITORY || 'unknown',
+            branch: process.env.GITHUB_REF_NAME || 'main',
+            commit: (process.env.GITHUB_SHA || 'unknown').slice(0, 12),
+            summary: { total_files: files.length, gaps_count: gaps.length, orphans_count: orphans.length, present_systems: present },
+            file_count: files.length,
+            files,
+            graph,
+            gaps,
+            orphans,
+            present_systems: present,
+            raw_report_version: 1
+          }
+
+          fs.writeFileSync('wiring.json', JSON.stringify(report, null, 2))
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `file_count=${files.length}\n`)
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `gap_count=${gaps.length}\n`)
+          console.log(`Scanned ${files.length} files, found ${gaps.length} gaps`)
+          SCANNER
+          node morph_scanner.mjs
+
+      - name: Sync wiring to Supabase
+        if: env.SUPABASE_URL != '' && env.SUPABASE_SERVICE_KEY != ''
+        run: |
+          cat > sync_supabase.mjs <<'SYNCER'
+          import fs from 'fs'
+          import { createClient } from '@supabase/supabase-js'
+
+          const report = JSON.parse(fs.readFileSync('wiring.json', 'utf8'))
+          const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
+
+          const { error: wiringError } = await supabase.from('morph_wiring').upsert({
+            repo: report.repo,
+            branch: report.branch,
+            commit: report.commit,
+            scanned_at: report.scanned_at,
+            file_count: report.file_count,
+            summary: report.summary,
+            files: report.files,
+            graph: report.graph,
+            gaps: report.gaps,
+            orphans: report.orphans,
+            present_systems: report.present_systems,
+            raw_report: report
+          }, { onConflict: 'repo,branch' })
+
+          if (wiringError) throw wiringError
+
+          for (const file of report.files) {
+            const { error } = await supabase.from('morph_artifacts').upsert({
+              repo: report.repo,
+              path: file.path,
+              name: file.name,
+              type: file.type,
+              hash: file.hash,
+              exports: file.exports,
+              tags: file.tags,
+              has_init: file.has_init,
+              scanned_at: report.scanned_at
+            }, { onConflict: 'repo,path' })
+            if (error) console.log(`Artifact sync warning for ${file.path}: ${error.message}`)
+          }
+
+          console.log('Morph wiring synced to Supabase')
+          SYNCER
+          node sync_supabase.mjs
+
+      - name: Commit wiring report
+        run: |
+          git config user.name "morph-wire"
+          git config user.email "wire@morph.os"
+          git add wiring.json
+          git diff --cached --quiet || git commit -m "Add Morph wiring report [skip ci]"
+          git push
