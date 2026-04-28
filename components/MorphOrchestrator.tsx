@@ -3,10 +3,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
-  Brain, Zap, Sparkles, Upload, Code2, 
-  Gamepad2, History, Settings, Home,
-  Mic, MicOff, X, ChevronUp, ChevronDown,
-  Terminal, Database, Network, Lightbulb
+  Brain, Upload, Code2, 
+  Gamepad2, Settings, Home,
+  Mic, MicOff, X, Database
 } from 'lucide-react'
 import { useMorphStore } from '@/hooks/useMorphStore'
 import { cn } from '@/lib/utils'
@@ -28,7 +27,7 @@ interface OrchestratorProps {
 export function MorphOrchestrator({ initialMode = 'home' }: OrchestratorProps) {
   const [mode, setMode] = useState<SystemModule>(initialMode)
   const [isAwake, setIsAwake] = useState(false)
-  const [voiceCommand, setVoiceCommand] = useState('')
+  const [voiceCommand] = useState('')
   const [isListening, setIsListening] = useState(false)
   const [lastCommand, setLastCommand] = useState('')
 
@@ -68,13 +67,13 @@ export function MorphOrchestrator({ initialMode = 'home' }: OrchestratorProps) {
     // Home/Idle
     if (lower.includes('home') || lower.includes('idle') || lower.includes('sleep')) {
       setMode('home')
-      return 'Going home. I'll be here when you need me.'
+      return 'Going home. I will be here when you need me.'
     }
 
     // Chat
     if (lower.includes('talk') || lower.includes('chat') || lower.includes('help')) {
       setMode('chat')
-      return 'I'm listening. What's on your mind?'
+      return 'I am listening. What is on your mind?'
     }
 
     return 'I heard: "' + cmd + '". Say "upload", "build", "simulate", "memory", or "home" to switch modes.'
@@ -88,7 +87,7 @@ export function MorphOrchestrator({ initialMode = 'home' }: OrchestratorProps) {
       // Simulate voice recognition
       setTimeout(() => {
         setIsListening(false)
-        const response = processVoiceCommand(voiceCommand || 'upload something')
+        processVoiceCommand(voiceCommand || 'upload something')
         // In real implementation, this would come from Web Speech API
       }, 3000)
     } else {
@@ -304,7 +303,7 @@ export function MorphOrchestrator({ initialMode = 'home' }: OrchestratorProps) {
             <div className="p-6 h-full overflow-y-auto">
               {mode === 'upload' && (
                 <div className="space-y-4">
-                  <p className="text-sm text-gray-400">Drop files here or paste code. I'll understand and remember them.</p>
+                  <p className="text-sm text-gray-400">Drop files here or paste code. I will understand and remember them.</p>
                   <div className="border-2 border-dashed border-void-600 rounded-xl p-12 text-center hover:border-morph-500 transition-colors">
                     <Upload className="w-12 h-12 mx-auto text-gray-500 mb-4" />
                     <p className="text-gray-400">Drop files or click to upload</p>
@@ -314,7 +313,7 @@ export function MorphOrchestrator({ initialMode = 'home' }: OrchestratorProps) {
 
               {mode === 'build' && (
                 <div className="space-y-4">
-                  <p className="text-sm text-gray-400">I'll generate code from my {gnnNodes.length} memory nodes.</p>
+                  <p className="text-sm text-gray-400">I will generate code from my {gnnNodes.length} memory nodes.</p>
                   <div className="bg-void-900 rounded-xl p-4">
                     <p className="text-xs text-gray-500 mb-2">What should I build?</p>
                     <input 
@@ -328,11 +327,11 @@ export function MorphOrchestrator({ initialMode = 'home' }: OrchestratorProps) {
 
               {mode === 'simulate' && (
                 <div className="space-y-4">
-                  <p className="text-sm text-gray-400">Describe a situation and I'll simulate it in real-time.</p>
+                  <p className="text-sm text-gray-400">Describe a situation and I will simulate it in real-time.</p>
                   <div className="bg-void-900 rounded-xl p-4">
                     <p className="text-xs text-gray-500 mb-2">Your situation:</p>
                     <textarea 
-                      placeholder="I'm stressed at work and..."
+                      placeholder="I am stressed at work and..."
                       className="w-full h-24 px-3 py-2 bg-void-800 border border-void-600 rounded-lg text-white text-sm resize-none"
                     />
                     <button className="mt-2 px-4 py-2 bg-morph-600 text-white rounded-lg text-sm">
