@@ -1,579 +1,533 @@
+name: Agent 18 Corrector Ultimate
 
-# Generate the FULLY FIXED Agent 18 workflow with Node 24 compatible action versions
-# Based on search results: checkout v6, setup-node v6, github-script v8
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Scan mode'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - code-only
+          - schema-only
+          - security-only
+          - python-only
+          - json-only
+          - docker-only
+          - health-check
 
-workflow_lines = [
-    "name: Agent 18 Corrector Ultimate",
-    "",
-    "on:",
-    "  push:",
-    "    branches: [main, master]",
-    "  pull_request:",
-    "    branches: [main, master]",
-    "  schedule:",
-    "    - cron: '0 3 * * *'",
-    "  workflow_dispatch:",
-    "    inputs:",
-    "      mode:",
-    "        description: 'Scan mode'",
-    "        required: true",
-    "        default: 'full'",
-    "        type: choice",
-    "        options:",
-    "          - full",
-    "          - code-only",
-    "          - schema-only",
-    "          - security-only",
-    "          - python-only",
-    "          - json-only",
-    "          - docker-only",
-    "          - health-check",
-    "",
-    "env:",
-    "  HEALTH_THRESHOLD: 80",
-    "  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true",
-    "",
-    "jobs:",
-    "  corrector:",
-    "    runs-on: ubuntu-latest",
-    "    permissions:",
-    "      contents: write",
-    "      pull-requests: write",
-    "      issues: write",
-    "    ",
-    "    steps:",
-    "      - name: Checkout repo",
-    "        uses: actions/checkout@v6",
-    "        with:",
-    "          fetch-depth: 0",
-    "",
-    "      - name: Setup Node.js 24",
-    "        uses: actions/setup-node@v6",
-    "        with:",
-    "          node-version: '24'",
-    "          cache: 'npm'",
-    "",
-    "      - name: Setup Python",
-    "        uses: actions/setup-python@v5",
-    "        with:",
-    "          python-version: '3.11'",
-    "",
-    "      - name: Install Node dependencies",
-    "        run: |",
-    "          if [ -f package.json ]; then",
-    "            npm ci || npm install",
-    "          fi",
-    "          npm install -g @typescript-eslint/parser eslint prettier typescript",
-    "",
-    "      - name: Install Python tools",
-    "        run: |",
-    "          pip install flake8 black isort bandit pylint pyright pyyaml",
-    "",
-    "      - name: Install Docker tools",
-    "        run: |",
-    "          npm install -g dockerfilelint",
-    "",
-    "      # ========== CODE SCAN: JS/TS/JSX/TSX ==========",
-    "      - name: TypeScript Check",
-    "        id: tsc",
-    "        run: |",
-    "          echo '## TypeScript Check' >> $GITHUB_STEP_SUMMARY",
-    "          if [ -f tsconfig.json ]; then",
-    "            npx tsc --noEmit 2>&1 | tee tsc-errors.log || true",
-    "            TSC_COUNT=$(grep -c 'error TS' tsc-errors.log 2>/dev/null || echo '0')",
-    "            echo 'TSC_ERRORS='" + "$" + "TSC_COUNT >> $GITHUB_ENV",
-    "            echo 'TypeScript Errors: '" + "$" + "TSC_COUNT >> $GITHUB_STEP_SUMMARY",
-    "          else",
-    "            echo 'No tsconfig.json found' >> $GITHUB_STEP_SUMMARY",
-    "            echo 'TSC_ERRORS=0' >> $GITHUB_ENV",
-    "          fi",
-    "        continue-on-error: true",
-    "",
-    "      - name: ESLint Scan + Auto-Fix",
-    "        id: eslint",
-    "        run: |",
-    "          echo '## ESLint Scan' >> $GITHUB_STEP_SUMMARY",
-    "          if [ -f .eslintrc.js ] || [ -f .eslintrc.json ] || [ -f .eslintrc ] || [ -f .eslintrc.cjs ]; then",
-    "            npx eslint . --ext .js,.jsx,.ts,.tsx --format json --output-file eslint-report.json 2>/dev/null || true",
-    "            npx eslint . --ext .js,.jsx,.ts,.tsx --fix 2>/dev/null || true",
-    "            ESLINT_COUNT=$(jq '. | length' eslint-report.json 2>/dev/null || echo '0')",
-    "            echo 'ESLINT_ERRORS='" + "$" + "ESLINT_COUNT >> $GITHUB_ENV",
-    "            echo 'ESLint Issues: '" + "$" + "ESLINT_COUNT >> $GITHUB_STEP_SUMMARY",
-    "          else",
-    "            echo 'No ESLint config found' >> $GITHUB_STEP_SUMMARY",
-    "            npx eslint . --ext .js,.jsx,.ts,.tsx --fix --rule 'no-unused-vars: warn' --rule 'no-undef: error' 2>/dev/null || true",
-    "            echo 'ESLINT_ERRORS=0' >> $GITHUB_ENV",
-    "          fi",
-    "        continue-on-error: true",
-    "",
-    "      - name: Prettier Format Check",
-    "        id: prettier",
-    "        run: |",
-    "          echo '## Prettier Check' >> $GITHUB_STEP_SUMMARY",
-    "          if [ -f .prettierrc ] || [ -f .prettierrc.json ] || [ -f .prettierrc.js ]; then",
-    "            npx prettier --check . 2>&1 | tee prettier.log || true",
-    "            PRETTY_ISSUES=$(grep -c 'error' prettier.log 2>/dev/null || echo '0')",
-    "            npx prettier --write . 2>/dev/null || true",
-    "            echo 'PRETTIER_ISSUES='" + "$" + "PRETTY_ISSUES >> $GITHUB_ENV",
-    "          else",
-    "            echo 'No Prettier config found' >> $GITHUB_STEP_SUMMARY",
-    "            echo 'PRETTIER_ISSUES=0' >> $GITHUB_ENV",
-    "          fi",
-    "        continue-on-error: true",
-    "",
-    "      # ========== PYTHON SCAN ==========",
-    "      - name: Python Flake8 Check",
-    "        id: flake8",
-    "        run: |",
-    "          echo '## Python Flake8' >> $GITHUB_STEP_SUMMARY",
-    "          PY_FILES=$(find . -name '*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/__pycache__/*' | wc -l)",
-    "          if [ '" + "$" + "PY_FILES' -gt 0 ]; then",
-    "            flake8 . --exclude=node_modules,.venv,__pycache__ --output-file=flake8-report.txt || true",
-    "            FLAKE_COUNT=$(grep -c ':' flake8-report.txt 2>/dev/null || echo '0')",
-    "            echo 'FLAKE8_ERRORS='" + "$" + "FLAKE_COUNT >> $GITHUB_ENV",
-    "            echo 'Python files: '" + "$" + "PY_FILES', Flake8 issues: '" + "$" + "FLAKE_COUNT >> $GITHUB_STEP_SUMMARY",
-    "          else",
-    "            echo 'No Python files found' >> $GITHUB_STEP_SUMMARY",
-    "            echo 'FLAKE8_ERRORS=0' >> $GITHUB_ENV",
-    "          fi",
-    "        continue-on-error: true",
-    "",
-    "      - name: Python Black Format + Auto-Fix",
-    "        id: black",
-    "        run: |",
-    "          echo '## Python Black' >> $GITHUB_STEP_SUMMARY",
-    "          PY_FILES=$(find . -name '*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/__pycache__/*' | wc -l)",
-    "          if [ '" + "$" + "PY_FILES' -gt 0 ]; then",
-    "            black --check . 2>&1 | tee black.log || true",
-    "            BLACK_ISSUES=$(grep -c 'would reformat' black.log 2>/dev/null || echo '0')",
-    "            black . 2>/dev/null || true",
-    "            echo 'BLACK_ISSUES='" + "$" + "BLACK_ISSUES >> $GITHUB_ENV",
-    "            echo 'Black reformatted: '" + "$" + "BLACK_ISSUES' files' >> $GITHUB_STEP_SUMMARY",
-    "          else",
-    "            echo 'No Python files' >> $GITHUB_STEP_SUMMARY",
-    "            echo 'BLACK_ISSUES=0' >> $GITHUB_ENV",
-    "          fi",
-    "        continue-on-error: true",
-    "",
-    "      - name: Python Bandit Security",
-    "        id: bandit",
-    "        run: |",
-    "          echo '## Python Security Bandit' >> $GITHUB_STEP_SUMMARY",
-    "          PY_FILES=$(find . -name '*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/__pycache__/*' | wc -l)",
-    "          if [ '" + "$" + "PY_FILES' -gt 0 ]; then",
-    "            bandit -r . -f json -o bandit-report.json --exclude ./node_modules,./.venv,./__pycache__ || true",
-    "            BANDIT_COUNT=$(jq '.results | length' bandit-report.json 2>/dev/null || echo '0')",
-    "            echo 'BANDIT_ISSUES='" + "$" + "BANDIT_COUNT >> $GITHUB_ENV",
-    "            echo 'Bandit security issues: '" + "$" + "BANDIT_COUNT >> $GITHUB_STEP_SUMMARY",
-    "          else",
-    "            echo 'No Python files' >> $GITHUB_STEP_SUMMARY",
-    "            echo 'BANDIT_ISSUES=0' >> $GITHUB_ENV",
-    "          fi",
-    "        continue-on-error: true",
-    "",
-    "      # ========== JSON VALIDATION ==========",
-    "      - name: JSON Validation",
-    "        id: json_check",
-    "        run: |",
-    "          echo '## JSON Validation' >> $GITHUB_STEP_SUMMARY",
-    "          JSON_ERRORS=0",
-    "          ",
-    "          if [ -f package.json ]; then",
-    "            if ! python3 -c 'import json; json.load(open(\"package.json\"))' 2>/dev/null; then",
-    "              echo 'package.json is invalid JSON' >> json-errors.log",
-    "              JSON_ERRORS=$((JSON_ERRORS + 1))",
-    "            else",
-    "              echo 'package.json valid' >> $GITHUB_STEP_SUMMARY",
-    "            fi",
-    "          fi",
-    "          ",
-    "          if [ -f tsconfig.json ]; then",
-    "            if ! python3 -c 'import json; json.load(open(\"tsconfig.json\"))' 2>/dev/null; then",
-    "              echo 'tsconfig.json is invalid JSON' >> json-errors.log",
-    "              JSON_ERRORS=$((JSON_ERRORS + 1))",
-    "            else",
-    "              echo 'tsconfig.json valid' >> $GITHUB_STEP_SUMMARY",
-    "            fi",
-    "          fi",
-    "          ",
-    "          find . -name '*.json' -not -path '*/node_modules/*' -not -path '*/.git/*' | while read f; do",
-    "            if ! python3 -c 'import json; json.load(open(\"'" + "$" + "f\"))' 2>/dev/null; then",
-    "              echo 'Invalid JSON: '" + "$" + "f >> json-errors.log",
-    "              JSON_ERRORS=$((JSON_ERRORS + 1))",
-    "            fi",
-    "          done",
-    "          ",
-    "          echo 'JSON_ERRORS='" + "$" + "JSON_ERRORS >> $GITHUB_ENV",
-    "          echo 'JSON errors: '" + "$" + "JSON_ERRORS >> $GITHUB_STEP_SUMMARY",
-    "        continue-on-error: true",
-    "",
-    "      # ========== DOCKERFILE LINTING ==========",
-    "      - name: Dockerfile Lint",
-    "        id: dockerlint",
-    "        run: |",
-    "          echo '## Dockerfile Lint' >> $GITHUB_STEP_SUMMARY",
-    "          DOCKER_ERRORS=0",
-    "          ",
-    "          if [ -f Dockerfile ]; then",
-    "            dockerfilelint Dockerfile 2>&1 | tee dockerfile-lint.log || true",
-    "            DOCKER_ERRORS=$(grep -c 'ERROR' dockerfile-lint.log 2>/dev/null || echo '0')",
-    "            echo 'Dockerfile errors: '" + "$" + "DOCKER_ERRORS >> $GITHUB_STEP_SUMMARY",
-    "          else",
-    "            echo 'No Dockerfile found' >> $GITHUB_STEP_SUMMARY",
-    "          fi",
-    "          ",
-    "          if [ -f docker-compose.yml ]; then",
-    "            if ! python3 -c 'import yaml; yaml.safe_load(open(\"docker-compose.yml\"))' 2>/dev/null; then",
-    "              echo 'docker-compose.yml YAML syntax error' >> docker-errors.log",
-    "              DOCKER_ERRORS=$((DOCKER_ERRORS + 1))",
-    "            else",
-    "              echo 'docker-compose.yml valid' >> $GITHUB_STEP_SUMMARY",
-    "            fi",
-    "          fi",
-    "          ",
-    "          echo 'DOCKER_ERRORS='" + "$" + "DOCKER_ERRORS >> $GITHUB_ENV",
-    "        continue-on-error: true",
-    "",
-    "      # ========== SCHEMA SCAN: Supabase / SQL ==========",
-    "      - name: Supabase Schema Check",
-    "        id: schema",
-    "        run: |",
-    "          echo '## Schema Check' >> $GITHUB_STEP_SUMMARY",
-    "          SCHEMA_ERRORS=0",
-    "          ",
-    "          if [ -d 'supabase' ]; then",
-    "            echo 'Found supabase directory' >> $GITHUB_STEP_SUMMARY",
-    "            ",
-    "            for f in supabase/migrations/*.sql; do",
-    "              if [ -f '" + "$" + "f' ]; then",
-    "                if grep -q 'VARCHAR.*255' '" + "$" + "f' 2>/dev/null; then",
-    "                  echo 'VARCHAR(255) in '" + "$" + "f' - consider TEXT' >> schema-warnings.log",
-    "                fi",
-    "                if grep -q 'NOT NULL.*DEFAULT NULL' '" + "$" + "f' 2>/dev/null; then",
-    "                  echo 'NOT NULL with DEFAULT NULL in '" + "$" + "f >> schema-errors.log",
-    "                  SCHEMA_ERRORS=$((SCHEMA_ERRORS + 1))",
-    "                fi",
-    "                if grep -q 'CREATE TABLE' '" + "$" + "f' 2>/dev/null && ! grep -q 'ENABLE ROW LEVEL SECURITY' '" + "$" + "f' 2>/dev/null; then",
-    "                  echo 'Table without RLS in '" + "$" + "f >> schema-warnings.log",
-    "                fi",
-    "              fi",
-    "            done",
-    "            ",
-    "            if [ ! -f 'supabase/seed.sql' ]; then",
-    "              echo 'No seed.sql found' >> schema-warnings.log",
-    "            fi",
-    "          fi",
-    "          ",
-    "          SQL_FILES=$(find . -name '*.sql' -not -path '*/node_modules/*' | wc -l)",
-    "          echo 'SQL files: '" + "$" + "SQL_FILES >> $GITHUB_STEP_SUMMARY",
-    "          ",
-    "          if [ -f 'supabase/config.toml' ]; then",
-    "            echo 'Supabase config found' >> $GITHUB_STEP_SUMMARY",
-    "          fi",
-    "          ",
-    "          echo 'SCHEMA_ERRORS='" + "$" + "SCHEMA_ERRORS >> $GITHUB_ENV",
-    "          echo 'Schema Errors: '" + "$" + "SCHEMA_ERRORS >> $GITHUB_STEP_SUMMARY",
-    "        continue-on-error: true",
-    "",
-    "      - name: Database TypeScript Types Check",
-    "        id: db_types",
-    "        run: |",
-    "          echo '## DB Types Check' >> $GITHUB_STEP_SUMMARY",
-    "          if [ -f 'src/types/supabase.ts' ] || [ -f 'types/supabase.ts' ] || [ -f 'lib/database.types.ts' ]; then",
-    "            echo 'Database types file found' >> $GITHUB_STEP_SUMMARY",
-    "            if [ -d 'supabase/migrations' ]; then",
-    "              LAST_MIGRATION=$(ls -t supabase/migrations/*.sql 2>/dev/null | head -1)",
-    "              LAST_TYPE=$(find . -name '*.ts' -path '*/supabase*' 2>/dev/null | head -1)",
-    "              if [ -z '" + "$" + "LAST_TYPE' ]; then",
-    "                LAST_TYPE=$(find . -name 'database.types.ts' 2>/dev/null | head -1)",
-    "              fi",
-    "              if [ -n '" + "$" + "LAST_MIGRATION' ] && [ -n '" + "$" + "LAST_TYPE' ]; then",
-    "                MIG_TIME=$(stat -c %Y '" + "$" + "LAST_MIGRATION' 2>/dev/null || echo '0')",
-    "                TYPE_TIME=$(stat -c %Y '" + "$" + "LAST_TYPE' 2>/dev/null || echo '0')",
-    "                if [ '" + "$" + "MIG_TIME' -gt '" + "$" + "TYPE_TIME' ]; then",
-    "                  echo 'Migrations newer than types - types may be stale' >> $GITHUB_STEP_SUMMARY",
-    "                  echo 'DB_TYPES_STALE=true' >> $GITHUB_ENV",
-    "                else",
-    "                  echo 'Types appear up-to-date' >> $GITHUB_STEP_SUMMARY",
-    "                  echo 'DB_TYPES_STALE=false' >> $GITHUB_ENV",
-    "                fi",
-    "              fi",
-    "            fi",
-    "          else",
-    "            echo 'No Supabase TypeScript types found' >> $GITHUB_STEP_SUMMARY",
-    "            echo 'DB_TYPES_STALE=true' >> $GITHUB_ENV",
-    "          fi",
-    "        continue-on-error: true",
-    "",
-    "      # ========== SECURITY SCAN ==========",
-    "      - name: Security Scan",
-    "        id: security",
-    "        run: |",
-    "          echo '## Security Scan' >> $GITHUB_STEP_SUMMARY",
-    "          SEC_ISSUES=0",
-    "          ",
-    "          if grep -r 'sk_live_' . --include='*.ts' --include='*.js' --include='*.tsx' --include='*.jsx' --include='*.py' --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=__pycache__ 2>/dev/null; then",
-    "            echo 'Found live secret key' >> security-errors.log",
-    "            SEC_ISSUES=$((SEC_ISSUES + 1))",
-    "          fi",
-    "          ",
-    "          if grep -r 'password.*=' . --include='*.ts' --include='*.js' --exclude-dir=node_modules 2>/dev/null | grep -v '// ' | head -5; then",
-    "            echo 'Possible hardcoded password' >> security-warnings.log",
-    "          fi",
-    "          ",
-    "          if git ls-files | grep -q '\\.env$'; then",
-    "            echo '.env file committed to repo' >> security-errors.log",
-    "            SEC_ISSUES=$((SEC_ISSUES + 1))",
-    "          fi",
-    "          ",
-    "          if grep -r 'eval(' . --include='*.ts' --include='*.js' --include='*.tsx' --exclude-dir=node_modules 2>/dev/null; then",
-    "            echo 'eval() detected - security risk' >> security-warnings.log",
-    "          fi",
-    "          ",
-    "          if grep -r 'new Function(' . --include='*.ts' --include='*.js' --exclude-dir=node_modules 2>/dev/null; then",
-    "            echo 'new Function() detected - security risk' >> security-warnings.log",
-    "          fi",
-    "          ",
-    "          echo 'SECURITY_ISSUES='" + "$" + "SEC_ISSUES >> $GITHUB_ENV",
-    "          echo 'Security Issues: '" + "$" + "SEC_ISSUES >> $GITHUB_STEP_SUMMARY",
-    "        continue-on-error: true",
-    "",
-    "      # ========== AUTO-FIX ROUTINE ==========",
-    "      - name: Auto-Fix Code Issues",
-    "        id: autofix",
-    "        run: |",
-    "          echo '## Auto-Fix' >> $GITHUB_STEP_SUMMARY",
-    "          ",
-    "          # Fix JS/TS semicolons",
-    "          find . -path ./node_modules -prune -o -path ./.venv -prune -o -path ./__pycache__ -prune -o ( -name '*.js' -o -name '*.ts' -o -name '*.jsx' -o -name '*.tsx' ) -print | while read f; do",
-    "            if [ -f '" + "$" + "f' ]; then",
-    "              sed -i 's/\\([a-zA-Z0-9_)\\]\\]\\)\\s*$/\\1;/g' '" + "$" + "f' 2>/dev/null || true",
-    "            fi",
-    "          done",
-    "          ",
-    "          # Fix React attributes",
-    "          find . -path ./node_modules -prune -o ( -name '*.tsx' -o -name '*.jsx' ) -print | while read f; do",
-    "            if [ -f '" + "$" + "f' ]; then",
-    "              sed -i 's/class=/className=/g' '" + "$" + "f' 2>/dev/null || true",
-    "              sed -i 's/for=/htmlFor=/g' '" + "$" + "f' 2>/dev/null || true",
-    "            fi",
-    "          done",
-    "          ",
-    "          # Fix import paths",
-    "          find . -path ./node_modules -prune -o ( -name '*.ts' -o -name '*.tsx' ) -print | while read f; do",
-    "            if [ -f '" + "$" + "f' ]; then",
-    "              sed -i \"s|from '\\./\\./|from '../|g\" '" + "$" + "f' 2>/dev/null || true",
-    "              sed -i \"s|from '\\.\\./\\./|from '../../|g\" '" + "$" + "f' 2>/dev/null || true",
-    "            fi",
-    "          done",
-    "          ",
-    "          # Add missing React imports",
-    "          find . -path ./node_modules -prune -o ( -name '*.tsx' -o -name '*.jsx' ) -print | while read f; do",
-    "            if [ -f '" + "$" + "f' ]; then",
-    "              if grep -q 'React' '" + "$" + "f' 2>/dev/null && ! grep -q 'import.*React' '" + "$" + "f' 2>/dev/null; then",
-    "                sed -i '1s/^/import React from \"react\";\\n/' '" + "$" + "f' 2>/dev/null || true",
-    "              fi",
-    "            fi",
-    "          done",
-    "          ",
-    "          # Remove console.log on main branch",
-    "          if [ '${{ github.ref }}' = 'refs/heads/main' ]; then",
-    "            find . -path ./node_modules -prune -o ( -name '*.ts' -o -name '*.tsx' ) -print | while read f; do",
-    "              if [ -f '" + "$" + "f' ]; then",
-    "                sed -i '/console\\.log(/d' '" + "$" + "f' 2>/dev/null || true",
-    "                sed -i '/console\\.warn(/d' '" + "$" + "f' 2>/dev/null || true",
-    "                sed -i '/console\\.error(/d' '" + "$" + "f' 2>/dev/null || true",
-    "              fi",
-    "            done",
-    "          fi",
-    "          ",
-    "          # Fix Python imports",
-    "          PY_FILES=$(find . -name '*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/__pycache__/*' | wc -l)",
-    "          if [ '" + "$" + "PY_FILES' -gt 0 ]; then",
-    "            isort . 2>/dev/null || true",
-    "            echo 'Python imports sorted' >> $GITHUB_STEP_SUMMARY",
-    "          fi",
-    "          ",
-    "          echo 'Auto-fixes complete' >> $GITHUB_STEP_SUMMARY",
-    "",
-    "      # ========== HEALTH SCORE ==========",
-    "      - name: Calculate Repo Health Score",
-    "        id: health",
-    "        run: |",
-    "          echo '## Health Score' >> $GITHUB_STEP_SUMMARY",
-    "          ",
-    "          JS_FILES=$(find . -name '*.js' -o -name '*.ts' -o -name '*.jsx' -o -name '*.tsx' | grep -v node_modules | wc -l)",
-    "          PY_FILES=$(find . -name '*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/__pycache__/*' | wc -l)",
-    "          SQL_FILES=$(find . -name '*.sql' -not -path '*/node_modules/*' | wc -l)",
-    "          JSON_FILES=$(find . -name '*.json' -not -path '*/node_modules/*' -not -path '*/.git/*' | wc -l)",
-    "          DOCKER_FILES=$(find . -name 'Dockerfile' -o -name 'docker-compose.yml' | wc -l)",
-    "          ",
-    "          TSC_PENALTY=${TSC_ERRORS:-0}",
-    "          ESLINT_PENALTY=${ESLINT_ERRORS:-0}",
-    "          SCHEMA_PENALTY=${SCHEMA_ERRORS:-0}",
-    "          SEC_PENALTY=${SECURITY_ISSUES:-0}",
-    "          PRETTY_PENALTY=${PRETTIER_ISSUES:-0}",
-    "          FLAKE_PENALTY=${FLAKE8_ERRORS:-0}",
-    "          BLACK_PENALTY=${BLACK_ISSUES:-0}",
-    "          BANDIT_PENALTY=${BANDIT_ISSUES:-0}",
-    "          JSON_PENALTY=${JSON_ERRORS:-0}",
-    "          DOCKER_PENALTY=${DOCKER_ERRORS:-0}",
-    "          ",
-    "          TOTAL_PENALTY=$((TSC_PENALTY + ESLINT_PENALTY + SCHEMA_PENALTY + SEC_PENALTY + PRETTY_PENALTY + FLAKE_PENALTY + BLACK_PENALTY + BANDIT_PENALTY + JSON_PENALTY + DOCKER_PENALTY))",
-    "          ",
-    "          TOTAL_FILES=$((JS_FILES + PY_FILES + SQL_FILES + JSON_FILES + DOCKER_FILES))",
-    "          ",
-    "          if [ '" + "$" + "TOTAL_FILES' -gt 0 ]; then",
-    "            BASE_SCORE=100",
-    "            PENALTY=$((TOTAL_PENALTY * 2))",
-    "            HEALTH=$((BASE_SCORE - PENALTY))",
-    "            if [ '" + "$" + "HEALTH' -lt 0 ]; then",
-    "              HEALTH=0",
-    "            fi",
-    "          else",
-    "            HEALTH=100",
-    "          fi",
-    "          ",
-    "          echo 'HEALTH_SCORE='" + "$" + "HEALTH >> $GITHUB_ENV",
-    "          echo 'Files: '" + "$" + "JS_FILES' JS/TS, '" + "$" + "PY_FILES' Python, '" + "$" + "SQL_FILES' SQL, '" + "$" + "JSON_FILES' JSON, '" + "$" + "DOCKER_FILES' Docker' >> $GITHUB_STEP_SUMMARY",
-    "          echo 'Penalties: TS='" + "$" + "TSC_PENALTY', ESLint='" + "$" + "ESLINT_PENALTY', Schema='" + "$" + "SCHEMA_PENALTY', Security='" + "$" + "SEC_PENALTY', Format='" + "$" + "PRETTY_PENALTY', Flake8='" + "$" + "FLAKE_PENALTY', Black='" + "$" + "BLACK_PENALTY', Bandit='" + "$" + "BANDIT_PENALTY', JSON='" + "$" + "JSON_PENALTY', Docker='" + "$" + "DOCKER_PENALTY >> $GITHUB_STEP_SUMMARY",
-    "          echo 'Health Score: '" + "$" + "HEALTH'/100' >> $GITHUB_STEP_SUMMARY",
-    "          ",
-    "          if [ '" + "$" + "HEALTH' -lt '" + "$" + "HEALTH_THRESHOLD' ]; then",
-    "            echo 'Health score '" + "$" + "HEALTH' below threshold '" + "$" + "HEALTH_THRESHOLD >> $GITHUB_STEP_SUMMARY",
-    "            echo 'HEALTH_FAILED=true' >> $GITHUB_ENV",
-    "          else",
-    "            echo 'Health score acceptable' >> $GITHUB_STEP_SUMMARY",
-    "            echo 'HEALTH_FAILED=false' >> $GITHUB_ENV",
-    "          fi",
-    "",
-    "      # ========== CREATE FIX PR ==========",
-    "      - name: Create Fix PR",
-    "        if: steps.autofix.outcome == 'success'",
-    "        uses: peter-evans/create-pull-request@v5",
-    "        with:",
-    "          token: ${{ secrets.GITHUB_TOKEN }}",
-    "          commit-message: 'Agent 18: Auto-corrected all issues'",
-    "          title: 'Agent 18 Corrector - Ultimate Auto-Fix Report'",
-    "          body: |",
-    "            ## Agent 18 - The Corrector (Ultimate) Report",
-    "            ",
-    "            | Metric | Value |",
-    "            |--------|-------|",
-    "            | Health Score | ${{ env.HEALTH_SCORE }}/100 |",
-    "            | TypeScript Errors | ${{ env.TSC_ERRORS }} |",
-    "            | ESLint Issues | ${{ env.ESLINT_ERRORS }} |",
-    "            | Prettier Issues | ${{ env.PRETTIER_ISSUES }} |",
-    "            | Python Flake8 | ${{ env.FLAKE8_ERRORS }} |",
-    "            | Python Black | ${{ env.BLACK_ISSUES }} |",
-    "            | Python Bandit | ${{ env.BANDIT_ISSUES }} |",
-    "            | Schema Issues | ${{ env.SCHEMA_ERRORS }} |",
-    "            | DB Types Stale | ${{ env.DB_TYPES_STALE }} |",
-    "            | JSON Errors | ${{ env.JSON_ERRORS }} |",
-    "            | Docker Issues | ${{ env.DOCKER_ERRORS }} |",
-    "            | Security Issues | ${{ env.SECURITY_ISSUES }} |",
-    "            ",
-    "            ### Auto-Fixes Applied:",
-    "            - JS/TS: Syntax, imports, React attributes",
-    "            - Python: Black formatting, isort imports",
-    "            - General: Prettier formatting",
-    "            ",
-    "            ### Scanned:",
-    "            - JavaScript, TypeScript, JSX, TSX",
-    "            - Python (.py)",
-    "            - SQL / Supabase migrations",
-    "            - JSON files (package.json, tsconfig, etc.)",
-    "            - Dockerfile / docker-compose.yml",
-    "            ",
-    "            ### Manual Review Needed:",
-    "            Please review before merging.",
-    "            ",
-    "            ---",
-    "            Agent 18 - Hexagram 18: Work on What Has Been Spoilt",
-    "            Mode: ${{ github.event.inputs.mode || 'scheduled' }}",
-    "          branch: agent-18-auto-fix-${{ github.run_id }}",
-    "          delete-branch: true",
-    "",
-    "      # ========== FAIL IF HEALTH LOW ==========",
-    "      - name: Fail if Health Below Threshold",
-    "        if: env.HEALTH_FAILED == 'true'",
-    "        run: |",
-    "          echo 'Repo health score ${{ env.HEALTH_SCORE }} is below threshold ${{ env.HEALTH_THRESHOLD }}'",
-    "          exit 1",
-    "",
-    "      # ========== CREATE ISSUE FOR CRITICAL ==========",
-    "      - name: Create Issue for Critical Errors",
-    "        if: env.SECURITY_ISSUES > 0 || env.SCHEMA_ERRORS > 0 || env.BANDIT_ISSUES > 0",
-    "        uses: actions/github-script@v8",
-    "        with:",
-    "          script: |",
-    "            const issues = [];",
-    "            if (parseInt(process.env.SECURITY_ISSUES) > 0) issues.push('Security: ' + process.env.SECURITY_ISSUES + ' issues');",
-    "            if (parseInt(process.env.SCHEMA_ERRORS) > 0) issues.push('Schema: ' + process.env.SCHEMA_ERRORS + ' errors');",
-    "            if (parseInt(process.env.BANDIT_ISSUES) > 0) issues.push('Python Security: ' + process.env.BANDIT_ISSUES + ' issues');",
-    "            if (process.env.DB_TYPES_STALE === 'true') issues.push('Database types may be stale');",
-    "            ",
-    "            const body = '## Agent 18 - Critical Issues Requiring Manual Fix\\n\\n' +",
-    "              'Health Score: ' + process.env.HEALTH_SCORE + '/100\\n\\n' +",
-    "              'Critical:\\n' +",
-    "              issues.map(i => '- ' + i).join('\\n') +",
-    "              '\\n\\nAll Metrics:\\n' +",
-    "              '- TypeScript Errors: ' + process.env.TSC_ERRORS + '\\n' +",
-    "              '- ESLint Issues: ' + process.env.ESLINT_ERRORS + '\\n' +",
-    "              '- Prettier Issues: ' + process.env.PRETTIER_ISSUES + '\\n' +",
-    "              '- Python Flake8: ' + process.env.FLAKE8_ERRORS + '\\n' +",
-    "              '- Python Black: ' + process.env.BLACK_ISSUES + '\\n' +",
-    "              '- Python Bandit: ' + process.env.BANDIT_ISSUES + '\\n' +",
-    "              '- Schema Issues: ' + process.env.SCHEMA_ERRORS + '\\n' +",
-    "              '- JSON Errors: ' + process.env.JSON_ERRORS + '\\n' +",
-    "              '- Docker Issues: ' + process.env.DOCKER_ERRORS + '\\n' +",
-    "              '- Security Issues: ' + process.env.SECURITY_ISSUES + '\\n\\n' +",
-    "              '---\\nGenerated by Agent 18 Corrector | Run: ' + context.runId;",
-    "            ",
-    "            github.rest.issues.create({",
-    "              owner: context.repo.owner,",
-    "              repo: context.repo.repo,",
-    "              title: 'Agent 18: ' + issues.length + ' critical issues need manual fix',",
-    "              body: body,",
-    "              labels: ['agent-18', 'auto-generated', 'critical', 'needs-fix']",
-    "            });",
-]
+env:
+  HEALTH_THRESHOLD: 80
 
-workflow_content = "\n".join(workflow_lines)
-
-# Validate YAML
-import yaml
-try:
-    parsed = yaml.safe_load(workflow_content)
-    print("✅ YAML syntax is VALID")
-    print(f"Workflow name: {parsed.get('name')}")
-    print(f"Jobs: {list(parsed.get('jobs', {}).keys())}")
-    print(f"Steps: {len(parsed['jobs']['corrector']['steps'])}")
+jobs:
+  corrector:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
     
-    # Verify key updates
-    env = parsed.get('env', {})
-    print(f"\n✅ FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: {env.get('FORCE_JAVASCRIPT_ACTIONS_TO_NODE24')}")
-    
-    for step in parsed['jobs']['corrector']['steps']:
-        if 'uses' in step:
-            if 'checkout' in step['uses']:
-                print(f"✅ checkout: {step['uses']}")
-            if 'setup-node' in step['uses']:
-                print(f"✅ setup-node: {step['uses']}")
-            if 'github-script' in step['uses']:
-                print(f"✅ github-script: {step['uses']}")
-            if 'setup-python' in step['uses']:
-                print(f"✅ setup-python: {step['uses']}")
-            if 'create-pull-request' in step['uses']:
-                print(f"✅ create-pull-request: {step['uses']}")
-except Exception as e:
-    print(f"❌ YAML ERROR: {e}")
-    import traceback
-    traceback.print_exc()
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-# Save
-with open('/mnt/agents/output/agent-18-ultimate.yml', 'w') as f:
-    f.write(workflow_content)
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
 
-print(f"\n✅ Saved: /mnt/agents/output/agent-18-ultimate.yml")
-print(f"Size: {len(workflow_content)} characters")
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Node dependencies
+        run: |
+          if [ -f package.json ]; then
+            npm ci || npm install
+          fi
+          npm install -g @typescript-eslint/parser eslint prettier typescript
+
+      - name: Install Python tools
+        run: |
+          pip install flake8 black isort bandit pylint pyright pyyaml
+
+      - name: Install Docker tools
+        run: |
+          npm install -g dockerfilelint
+
+      # ========== CODE SCAN: JS/TS/JSX/TSX ==========
+      - name: TypeScript Check
+        id: tsc
+        run: |
+          echo '## TypeScript Check' >> $GITHUB_STEP_SUMMARY
+          if [ -f tsconfig.json ]; then
+            npx tsc --noEmit 2>&1 | tee tsc-errors.log || true
+            TSC_COUNT=$(grep -c 'error TS' tsc-errors.log 2>/dev/null || echo '0')
+            echo 'TSC_ERRORS='$TSC_COUNT >> $GITHUB_ENV
+            echo 'TypeScript Errors: '$TSC_COUNT >> $GITHUB_STEP_SUMMARY
+          else
+            echo 'No tsconfig.json found' >> $GITHUB_STEP_SUMMARY
+            echo 'TSC_ERRORS=0' >> $GITHUB_ENV
+          fi
+        continue-on-error: true
+
+      - name: ESLint Scan + Auto-Fix
+        id: eslint
+        run: |
+          echo '## ESLint Scan' >> $GITHUB_STEP_SUMMARY
+          if [ -f .eslintrc.js ] || [ -f .eslintrc.json ] || [ -f .eslintrc ] || [ -f .eslintrc.cjs ]; then
+            npx eslint . --ext .js,.jsx,.ts,.tsx --format json --output-file eslint-report.json 2>/dev/null || true
+            npx eslint . --ext .js,.jsx,.ts,.tsx --fix 2>/dev/null || true
+            ESLINT_COUNT=$(jq '. | length' eslint-report.json 2>/dev/null || echo '0')
+            echo 'ESLINT_ERRORS='$ESLINT_COUNT >> $GITHUB_ENV
+            echo 'ESLint Issues: '$ESLINT_COUNT >> $GITHUB_STEP_SUMMARY
+          else
+            echo 'No ESLint config found' >> $GITHUB_STEP_SUMMARY
+            npx eslint . --ext .js,.jsx,.ts,.tsx --fix --rule 'no-unused-vars: warn' --rule 'no-undef: error' 2>/dev/null || true
+            echo 'ESLINT_ERRORS=0' >> $GITHUB_ENV
+          fi
+        continue-on-error: true
+
+      - name: Prettier Format Check
+        id: prettier
+        run: |
+          echo '## Prettier Check' >> $GITHUB_STEP_SUMMARY
+          if [ -f .prettierrc ] || [ -f .prettierrc.json ] || [ -f .prettierrc.js ]; then
+            npx prettier --check . 2>&1 | tee prettier.log || true
+            PRETTY_ISSUES=$(grep -c 'error' prettier.log 2>/dev/null || echo '0')
+            npx prettier --write . 2>/dev/null || true
+            echo 'PRETTIER_ISSUES='$PRETTY_ISSUES >> $GITHUB_ENV
+          else
+            echo 'No Prettier config found' >> $GITHUB_STEP_SUMMARY
+            echo 'PRETTIER_ISSUES=0' >> $GITHUB_ENV
+          fi
+        continue-on-error: true
+
+      # ========== PYTHON SCAN ==========
+      - name: Python Flake8 Check
+        id: flake8
+        run: |
+          echo '## Python Flake8' >> $GITHUB_STEP_SUMMARY
+          PY_FILES=$(find . -name '*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/__pycache__/*' | wc -l)
+          if [ '$PY_FILES' -gt 0 ]; then
+            flake8 . --exclude=node_modules,.venv,__pycache__ --output-file=flake8-report.txt || true
+            FLAKE_COUNT=$(grep -c ':' flake8-report.txt 2>/dev/null || echo '0')
+            echo 'FLAKE8_ERRORS='$FLAKE_COUNT >> $GITHUB_ENV
+            echo 'Python files: '$PY_FILES', Flake8 issues: '$FLAKE_COUNT >> $GITHUB_STEP_SUMMARY
+          else
+            echo 'No Python files found' >> $GITHUB_STEP_SUMMARY
+            echo 'FLAKE8_ERRORS=0' >> $GITHUB_ENV
+          fi
+        continue-on-error: true
+
+      - name: Python Black Format + Auto-Fix
+        id: black
+        run: |
+          echo '## Python Black' >> $GITHUB_STEP_SUMMARY
+          PY_FILES=$(find . -name '*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/__pycache__/*' | wc -l)
+          if [ '$PY_FILES' -gt 0 ]; then
+            black --check . 2>&1 | tee black.log || true
+            BLACK_ISSUES=$(grep -c 'would reformat' black.log 2>/dev/null || echo '0')
+            black . 2>/dev/null || true
+            echo 'BLACK_ISSUES='$BLACK_ISSUES >> $GITHUB_ENV
+            echo 'Black reformatted: '$BLACK_ISSUES' files' >> $GITHUB_STEP_SUMMARY
+          else
+            echo 'No Python files' >> $GITHUB_STEP_SUMMARY
+            echo 'BLACK_ISSUES=0' >> $GITHUB_ENV
+          fi
+        continue-on-error: true
+
+      - name: Python Bandit Security
+        id: bandit
+        run: |
+          echo '## Python Security Bandit' >> $GITHUB_STEP_SUMMARY
+          PY_FILES=$(find . -name '*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/__pycache__/*' | wc -l)
+          if [ '$PY_FILES' -gt 0 ]; then
+            bandit -r . -f json -o bandit-report.json --exclude ./node_modules,./.venv,./__pycache__ || true
+            BANDIT_COUNT=$(jq '.results | length' bandit-report.json 2>/dev/null || echo '0')
+            echo 'BANDIT_ISSUES='$BANDIT_COUNT >> $GITHUB_ENV
+            echo 'Bandit security issues: '$BANDIT_COUNT >> $GITHUB_STEP_SUMMARY
+          else
+            echo 'No Python files' >> $GITHUB_STEP_SUMMARY
+            echo 'BANDIT_ISSUES=0' >> $GITHUB_ENV
+          fi
+        continue-on-error: true
+
+      # ========== JSON VALIDATION ==========
+      - name: JSON Validation
+        id: json_check
+        run: |
+          echo '## JSON Validation' >> $GITHUB_STEP_SUMMARY
+          JSON_ERRORS=0
+          
+          if [ -f package.json ]; then
+            if ! python3 -c 'import json; json.load(open("package.json"))' 2>/dev/null; then
+              echo 'package.json is invalid JSON' >> json-errors.log
+              JSON_ERRORS=$((JSON_ERRORS + 1))
+            else
+              echo 'package.json valid' >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          
+          if [ -f tsconfig.json ]; then
+            if ! python3 -c 'import json; json.load(open("tsconfig.json"))' 2>/dev/null; then
+              echo 'tsconfig.json is invalid JSON' >> json-errors.log
+              JSON_ERRORS=$((JSON_ERRORS + 1))
+            else
+              echo 'tsconfig.json valid' >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          
+          find . -name '*.json' -not -path '*/node_modules/*' -not -path '*/.git/*' | while read f; do
+            if ! python3 -c 'import json; json.load(open("'$f"))' 2>/dev/null; then
+              echo 'Invalid JSON: '$f >> json-errors.log
+              JSON_ERRORS=$((JSON_ERRORS + 1))
+            fi
+          done
+          
+          echo 'JSON_ERRORS='$JSON_ERRORS >> $GITHUB_ENV
+          echo 'JSON errors: '$JSON_ERRORS >> $GITHUB_STEP_SUMMARY
+        continue-on-error: true
+
+      # ========== DOCKERFILE LINTING ==========
+      - name: Dockerfile Lint
+        id: dockerlint
+        run: |
+          echo '## Dockerfile Lint' >> $GITHUB_STEP_SUMMARY
+          DOCKER_ERRORS=0
+          
+          if [ -f Dockerfile ]; then
+            dockerfilelint Dockerfile 2>&1 | tee dockerfile-lint.log || true
+            DOCKER_ERRORS=$(grep -c 'ERROR' dockerfile-lint.log 2>/dev/null || echo '0')
+            echo 'Dockerfile errors: '$DOCKER_ERRORS >> $GITHUB_STEP_SUMMARY
+          else
+            echo 'No Dockerfile found' >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f docker-compose.yml ]; then
+            if ! python3 -c 'import yaml; yaml.safe_load(open("docker-compose.yml"))' 2>/dev/null; then
+              echo 'docker-compose.yml YAML syntax error' >> docker-errors.log
+              DOCKER_ERRORS=$((DOCKER_ERRORS + 1))
+            else
+              echo 'docker-compose.yml valid' >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          
+          echo 'DOCKER_ERRORS='$DOCKER_ERRORS >> $GITHUB_ENV
+        continue-on-error: true
+
+      # ========== SCHEMA SCAN: Supabase / SQL ==========
+      - name: Supabase Schema Check
+        id: schema
+        run: |
+          echo '## Schema Check' >> $GITHUB_STEP_SUMMARY
+          SCHEMA_ERRORS=0
+          
+          if [ -d 'supabase' ]; then
+            echo 'Found supabase directory' >> $GITHUB_STEP_SUMMARY
+            
+            for f in supabase/migrations/*.sql; do
+              if [ -f '$f' ]; then
+                if grep -q 'VARCHAR.*255' '$f' 2>/dev/null; then
+                  echo 'VARCHAR(255) in '$f' - consider TEXT' >> schema-warnings.log
+                fi
+                if grep -q 'NOT NULL.*DEFAULT NULL' '$f' 2>/dev/null; then
+                  echo 'NOT NULL with DEFAULT NULL in '$f >> schema-errors.log
+                  SCHEMA_ERRORS=$((SCHEMA_ERRORS + 1))
+                fi
+                if grep -q 'CREATE TABLE' '$f' 2>/dev/null && ! grep -q 'ENABLE ROW LEVEL SECURITY' '$f' 2>/dev/null; then
+                  echo 'Table without RLS in '$f >> schema-warnings.log
+                fi
+              fi
+            done
+            
+            if [ ! -f 'supabase/seed.sql' ]; then
+              echo 'No seed.sql found' >> schema-warnings.log
+            fi
+          fi
+          
+          SQL_FILES=$(find . -name '*.sql' -not -path '*/node_modules/*' | wc -l)
+          echo 'SQL files: '$SQL_FILES >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f 'supabase/config.toml' ]; then
+            echo 'Supabase config found' >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo 'SCHEMA_ERRORS='$SCHEMA_ERRORS >> $GITHUB_ENV
+          echo 'Schema Errors: '$SCHEMA_ERRORS >> $GITHUB_STEP_SUMMARY
+        continue-on-error: true
+
+      - name: Database TypeScript Types Check
+        id: db_types
+        run: |
+          echo '## DB Types Check' >> $GITHUB_STEP_SUMMARY
+          if [ -f 'src/types/supabase.ts' ] || [ -f 'types/supabase.ts' ] || [ -f 'lib/database.types.ts' ]; then
+            echo 'Database types file found' >> $GITHUB_STEP_SUMMARY
+            if [ -d 'supabase/migrations' ]; then
+              LAST_MIGRATION=$(ls -t supabase/migrations/*.sql 2>/dev/null | head -1)
+              LAST_TYPE=$(find . -name '*.ts' -path '*/supabase*' 2>/dev/null | head -1)
+              if [ -z '$LAST_TYPE' ]; then
+                LAST_TYPE=$(find . -name 'database.types.ts' 2>/dev/null | head -1)
+              fi
+              if [ -n '$LAST_MIGRATION' ] && [ -n '$LAST_TYPE' ]; then
+                MIG_TIME=$(stat -c %Y '$LAST_MIGRATION' 2>/dev/null || echo '0')
+                TYPE_TIME=$(stat -c %Y '$LAST_TYPE' 2>/dev/null || echo '0')
+                if [ '$MIG_TIME' -gt '$TYPE_TIME' ]; then
+                  echo 'Migrations newer than types - types may be stale' >> $GITHUB_STEP_SUMMARY
+                  echo 'DB_TYPES_STALE=true' >> $GITHUB_ENV
+                else
+                  echo 'Types appear up-to-date' >> $GITHUB_STEP_SUMMARY
+                  echo 'DB_TYPES_STALE=false' >> $GITHUB_ENV
+                fi
+              fi
+            fi
+          else
+            echo 'No Supabase TypeScript types found' >> $GITHUB_STEP_SUMMARY
+            echo 'DB_TYPES_STALE=true' >> $GITHUB_ENV
+          fi
+        continue-on-error: true
+
+      # ========== SECURITY SCAN ==========
+      - name: Security Scan
+        id: security
+        run: |
+          echo '## Security Scan' >> $GITHUB_STEP_SUMMARY
+          SEC_ISSUES=0
+          
+          if grep -r 'sk_live_' . --include='*.ts' --include='*.js' --include='*.tsx' --include='*.jsx' --include='*.py' --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=__pycache__ 2>/dev/null; then
+            echo 'Found live secret key' >> security-errors.log
+            SEC_ISSUES=$((SEC_ISSUES + 1))
+          fi
+          
+          if grep -r 'password.*=' . --include='*.ts' --include='*.js' --exclude-dir=node_modules 2>/dev/null | grep -v '// ' | head -5; then
+            echo 'Possible hardcoded password' >> security-warnings.log
+          fi
+          
+          if git ls-files | grep -q '\.env$'; then
+            echo '.env file committed to repo' >> security-errors.log
+            SEC_ISSUES=$((SEC_ISSUES + 1))
+          fi
+          
+          if grep -r 'eval(' . --include='*.ts' --include='*.js' --include='*.tsx' --exclude-dir=node_modules 2>/dev/null; then
+            echo 'eval() detected - security risk' >> security-warnings.log
+          fi
+          
+          if grep -r 'new Function(' . --include='*.ts' --include='*.js' --exclude-dir=node_modules 2>/dev/null; then
+            echo 'new Function() detected - security risk' >> security-warnings.log
+          fi
+          
+          echo 'SECURITY_ISSUES='$SEC_ISSUES >> $GITHUB_ENV
+          echo 'Security Issues: '$SEC_ISSUES >> $GITHUB_STEP_SUMMARY
+        continue-on-error: true
+
+      # ========== AUTO-FIX ROUTINE ==========
+      - name: Auto-Fix Code Issues
+        id: autofix
+        run: |
+          echo '## Auto-Fix' >> $GITHUB_STEP_SUMMARY
+          
+          # Fix JS/TS semicolons
+          find . -path ./node_modules -prune -o -path ./.venv -prune -o -path ./__pycache__ -prune -o ( -name '*.js' -o -name '*.ts' -o -name '*.jsx' -o -name '*.tsx' ) -print | while read f; do
+            if [ -f '$f' ]; then
+              sed -i 's/\([a-zA-Z0-9_)\]\]\)\s*$/\1;/g' '$f' 2>/dev/null || true
+            fi
+          done
+          
+          # Fix React attributes
+          find . -path ./node_modules -prune -o ( -name '*.tsx' -o -name '*.jsx' ) -print | while read f; do
+            if [ -f '$f' ]; then
+              sed -i 's/class=/className=/g' '$f' 2>/dev/null || true
+              sed -i 's/for=/htmlFor=/g' '$f' 2>/dev/null || true
+            fi
+          done
+          
+          # Fix import paths
+          find . -path ./node_modules -prune -o ( -name '*.ts' -o -name '*.tsx' ) -print | while read f; do
+            if [ -f '$f' ]; then
+              sed -i "s|from '\./\./|from '../|g" '$f' 2>/dev/null || true
+              sed -i "s|from '\.\./\./|from '../../|g" '$f' 2>/dev/null || true
+            fi
+          done
+          
+          # Add missing React imports
+          find . -path ./node_modules -prune -o ( -name '*.tsx' -o -name '*.jsx' ) -print | while read f; do
+            if [ -f '$f' ]; then
+              if grep -q 'React' '$f' 2>/dev/null && ! grep -q 'import.*React' '$f' 2>/dev/null; then
+                sed -i '1s/^/import React from "react";\n/' '$f' 2>/dev/null || true
+              fi
+            fi
+          done
+          
+          # Remove console.log on main branch
+          if [ '${{ github.ref }}' = 'refs/heads/main' ]; then
+            find . -path ./node_modules -prune -o ( -name '*.ts' -o -name '*.tsx' ) -print | while read f; do
+              if [ -f '$f' ]; then
+                sed -i '/console\.log(/d' '$f' 2>/dev/null || true
+                sed -i '/console\.warn(/d' '$f' 2>/dev/null || true
+                sed -i '/console\.error(/d' '$f' 2>/dev/null || true
+              fi
+            done
+          fi
+          
+          # Fix Python imports
+          PY_FILES=$(find . -name '*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/__pycache__/*' | wc -l)
+          if [ '$PY_FILES' -gt 0 ]; then
+            isort . 2>/dev/null || true
+            echo 'Python imports sorted' >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo 'Auto-fixes complete' >> $GITHUB_STEP_SUMMARY
+
+      # ========== HEALTH SCORE ==========
+      - name: Calculate Repo Health Score
+        id: health
+        run: |
+          echo '## Health Score' >> $GITHUB_STEP_SUMMARY
+          
+          JS_FILES=$(find . -name '*.js' -o -name '*.ts' -o -name '*.jsx' -o -name '*.tsx' | grep -v node_modules | wc -l)
+          PY_FILES=$(find . -name '*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/__pycache__/*' | wc -l)
+          SQL_FILES=$(find . -name '*.sql' -not -path '*/node_modules/*' | wc -l)
+          JSON_FILES=$(find . -name '*.json' -not -path '*/node_modules/*' -not -path '*/.git/*' | wc -l)
+          DOCKER_FILES=$(find . -name 'Dockerfile' -o -name 'docker-compose.yml' | wc -l)
+          
+          TSC_PENALTY=${TSC_ERRORS:-0}
+          ESLINT_PENALTY=${ESLINT_ERRORS:-0}
+          SCHEMA_PENALTY=${SCHEMA_ERRORS:-0}
+          SEC_PENALTY=${SECURITY_ISSUES:-0}
+          PRETTY_PENALTY=${PRETTIER_ISSUES:-0}
+          FLAKE_PENALTY=${FLAKE8_ERRORS:-0}
+          BLACK_PENALTY=${BLACK_ISSUES:-0}
+          BANDIT_PENALTY=${BANDIT_ISSUES:-0}
+          JSON_PENALTY=${JSON_ERRORS:-0}
+          DOCKER_PENALTY=${DOCKER_ERRORS:-0}
+          
+          TOTAL_PENALTY=$((TSC_PENALTY + ESLINT_PENALTY + SCHEMA_PENALTY + SEC_PENALTY + PRETTY_PENALTY + FLAKE_PENALTY + BLACK_PENALTY + BANDIT_PENALTY + JSON_PENALTY + DOCKER_PENALTY))
+          
+          TOTAL_FILES=$((JS_FILES + PY_FILES + SQL_FILES + JSON_FILES + DOCKER_FILES))
+          
+          if [ '$TOTAL_FILES' -gt 0 ]; then
+            BASE_SCORE=100
+            PENALTY=$((TOTAL_PENALTY * 2))
+            HEALTH=$((BASE_SCORE - PENALTY))
+            if [ '$HEALTH' -lt 0 ]; then
+              HEALTH=0
+            fi
+          else
+            HEALTH=100
+          fi
+          
+          echo 'HEALTH_SCORE='$HEALTH >> $GITHUB_ENV
+          echo 'Files: '$JS_FILES' JS/TS, '$PY_FILES' Python, '$SQL_FILES' SQL, '$JSON_FILES' JSON, '$DOCKER_FILES' Docker' >> $GITHUB_STEP_SUMMARY
+          echo 'Penalties: TS='$TSC_PENALTY', ESLint='$ESLINT_PENALTY', Schema='$SCHEMA_PENALTY', Security='$SEC_PENALTY', Format='$PRETTY_PENALTY', Flake8='$FLAKE_PENALTY', Black='$BLACK_PENALTY', Bandit='$BANDIT_PENALTY', JSON='$JSON_PENALTY', Docker='$DOCKER_PENALTY >> $GITHUB_STEP_SUMMARY
+          echo 'Health Score: '$HEALTH'/100' >> $GITHUB_STEP_SUMMARY
+          
+          if [ '$HEALTH' -lt '$HEALTH_THRESHOLD' ]; then
+            echo 'Health score '$HEALTH' below threshold '$HEALTH_THRESHOLD >> $GITHUB_STEP_SUMMARY
+            echo 'HEALTH_FAILED=true' >> $GITHUB_ENV
+          else
+            echo 'Health score acceptable' >> $GITHUB_STEP_SUMMARY
+            echo 'HEALTH_FAILED=false' >> $GITHUB_ENV
+          fi
+
+      # ========== CREATE FIX PR ==========
+      - name: Create Fix PR
+        if: steps.autofix.outcome == 'success'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'Agent 18: Auto-corrected all issues'
+          title: 'Agent 18 Corrector - Ultimate Auto-Fix Report'
+          body: |
+            ## Agent 18 - The Corrector (Ultimate) Report
+            
+            | Metric | Value |
+            |--------|-------|
+            | Health Score | ${{ env.HEALTH_SCORE }}/100 |
+            | TypeScript Errors | ${{ env.TSC_ERRORS }} |
+            | ESLint Issues | ${{ env.ESLINT_ERRORS }} |
+            | Prettier Issues | ${{ env.PRETTIER_ISSUES }} |
+            | Python Flake8 | ${{ env.FLAKE8_ERRORS }} |
+            | Python Black | ${{ env.BLACK_ISSUES }} |
+            | Python Bandit | ${{ env.BANDIT_ISSUES }} |
+            | Schema Issues | ${{ env.SCHEMA_ERRORS }} |
+            | DB Types Stale | ${{ env.DB_TYPES_STALE }} |
+            | JSON Errors | ${{ env.JSON_ERRORS }} |
+            | Docker Issues | ${{ env.DOCKER_ERRORS }} |
+            | Security Issues | ${{ env.SECURITY_ISSUES }} |
+            
+            ### Auto-Fixes Applied:
+            - JS/TS: Syntax, imports, React attributes
+            - Python: Black formatting, isort imports
+            - General: Prettier formatting
+            
+            ### Scanned:
+            - JavaScript, TypeScript, JSX, TSX
+            - Python (.py)
+            - SQL / Supabase migrations
+            - JSON files (package.json, tsconfig, etc.)
+            - Dockerfile / docker-compose.yml
+            
+            ### Manual Review Needed:
+            Please review before merging.
+            
+            ---
+            Agent 18 - Hexagram 18: Work on What Has Been Spoilt
+            Mode: ${{ github.event.inputs.mode || 'scheduled' }}
+          branch: agent-18-auto-fix-${{ github.run_id }}
+          delete-branch: true
+
+      # ========== FAIL IF HEALTH LOW ==========
+      - name: Fail if Health Below Threshold
+        if: env.HEALTH_FAILED == 'true'
+        run: |
+          echo 'Repo health score ${{ env.HEALTH_SCORE }} is below threshold ${{ env.HEALTH_THRESHOLD }}'
+          exit 1
+
+      # ========== CREATE ISSUE FOR CRITICAL ==========
+      - name: Create Issue for Critical Errors
+        if: env.SECURITY_ISSUES > 0 || env.SCHEMA_ERRORS > 0 || env.BANDIT_ISSUES > 0
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issues = [];
+            if (parseInt(process.env.SECURITY_ISSUES) > 0) issues.push('Security: ' + process.env.SECURITY_ISSUES + ' issues');
+            if (parseInt(process.env.SCHEMA_ERRORS) > 0) issues.push('Schema: ' + process.env.SCHEMA_ERRORS + ' errors');
+            if (parseInt(process.env.BANDIT_ISSUES) > 0) issues.push('Python Security: ' + process.env.BANDIT_ISSUES + ' issues');
+            if (process.env.DB_TYPES_STALE === 'true') issues.push('Database types may be stale');
+            
+            const body = '## Agent 18 - Critical Issues Requiring Manual Fix\n\n' +
+              'Health Score: ' + process.env.HEALTH_SCORE + '/100\n\n' +
+              'Critical:\n' +
+              issues.map(i => '- ' + i).join('\n') +
+              '\n\nAll Metrics:\n' +
+              '- TypeScript Errors: ' + process.env.TSC_ERRORS + '\n' +
+              '- ESLint Issues: ' + process.env.ESLINT_ERRORS + '\n' +
+              '- Prettier Issues: ' + process.env.PRETTIER_ISSUES + '\n' +
+              '- Python Flake8: ' + process.env.FLAKE8_ERRORS + '\n' +
+              '- Python Black: ' + process.env.BLACK_ISSUES + '\n' +
+              '- Python Bandit: ' + process.env.BANDIT_ISSUES + '\n' +
+              '- Schema Issues: ' + process.env.SCHEMA_ERRORS + '\n' +
+              '- JSON Errors: ' + process.env.JSON_ERRORS + '\n' +
+              '- Docker Issues: ' + process.env.DOCKER_ERRORS + '\n' +
+              '- Security Issues: ' + process.env.SECURITY_ISSUES + '\n\n' +
+              '---\nGenerated by Agent 18 Corrector | Run: ' + context.runId;
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Agent 18: ' + issues.length + ' critical issues need manual fix',
+              body: body,
+              labels: ['agent-18', 'auto-generated', 'critical', 'needs-fix']
+            });
