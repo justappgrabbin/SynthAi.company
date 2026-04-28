@@ -1,4 +1,4 @@
-name: 🤖 Agent 18 — The Corrector (Schema + Code)
+name: "🤖 Agent 18 — The Corrector (Schema + Code)"
 
 on:
   push:
@@ -6,13 +6,13 @@ on:
   pull_request:
     branches: [main, master]
   schedule:
-    - cron: '0 3 * * *'
+    - cron: "0 3 * * *"
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Scan mode'
+        description: "Scan mode"
         required: true
-        default: 'full'
+        default: "full"
         type: choice
         options:
           - full
@@ -22,257 +22,315 @@ on:
           - health-check
 
 env:
-  HEALTH_THRESHOLD: 80
+  HEALTH_THRESHOLD: "80"
+  SCAN_MODE: ${{ github.event.inputs.mode || 'full' }}
 
 jobs:
   corrector:
     runs-on: ubuntu-latest
+
     permissions:
       contents: write
       pull-requests: write
       issues: write
 
     steps:
-      - name: 📥 Checkout repo
+      - name: "📥 Checkout repo"
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: 🔧 Setup Node.js
+      - name: "🔧 Setup Node.js"
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: npm
 
-      - name: 📦 Install dependencies
+      - name: "📦 Install dependencies"
         run: |
           if [ -f package.json ]; then
             npm ci || npm install
           fi
-          # Install additional tools
-          npm install -g @typescript-eslint/parser eslint prettier typescript
 
-      # ========== CODE SCAN: JS/TS/JSX/TSX ==========
-      - name: 🔍 TypeScript Check
+          npm install -g eslint prettier typescript @typescript-eslint/parser jq || true
+
+      - name: "🔍 TypeScript Check"
         id: tsc
+        if: env.SCAN_MODE == 'full' || env.SCAN_MODE == 'code-only' || env.SCAN_MODE == 'health-check'
+        continue-on-error: true
         run: |
-          echo "## 🔍 TypeScript Check" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔍 TypeScript Check" >> "$GITHUB_STEP_SUMMARY"
+
           if [ -f tsconfig.json ]; then
             npx tsc --noEmit 2>&1 | tee tsc-errors.log || true
-            TSC_COUNT=$(grep -c "error TS" tsc-errors.log 2>/dev/null || echo "0")
-            echo "TSC_ERRORS=$TSC_COUNT" >> $GITHUB_ENV
-            echo "TypeScript Errors: $TSC_COUNT" >> $GITHUB_STEP_SUMMARY
+            TSC_COUNT=$(grep -c "error TS" tsc-errors.log || true)
+            echo "TSC_ERRORS=${TSC_COUNT:-0}" >> "$GITHUB_ENV"
+            echo "TypeScript Errors: ${TSC_COUNT:-0}" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "No tsconfig.json found — skipping TS check" >> $GITHUB_STEP_SUMMARY
-            echo "TSC_ERRORS=0" >> $GITHUB_ENV
+            echo "No tsconfig.json found — skipping TS check" >> "$GITHUB_STEP_SUMMARY"
+            echo "TSC_ERRORS=0" >> "$GITHUB_ENV"
           fi
-        continue-on-error: true
 
-      - name: 🔍 ESLint Scan + Auto-Fix
+      - name: "🔍 ESLint Scan + Auto-Fix"
         id: eslint
-        run: |
-          echo "## 🔍 ESLint Scan" >> $GITHUB_STEP_SUMMARY
-          if [ -f .eslintrc.js ] || [ -f .eslintrc.json ] || [ -f .eslintrc ] || [ -f .eslintrc.cjs ]; then
-            npx eslint . --ext .js,.jsx,.ts,.tsx --format json --output-file eslint-report.json 2>/dev/null || true
-            npx eslint . --ext .js,.jsx,.ts,.tsx --fix 2>/dev/null || true
-            ESLINT_COUNT=$(jq '. | length' eslint-report.json 2>/dev/null || echo "0")
-            echo "ESLINT_ERRORS=$ESLINT_COUNT" >> $GITHUB_ENV
-            echo "ESLint Issues: $ESLINT_COUNT" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "No ESLint config — using default" >> $GITHUB_STEP_SUMMARY
-            npx eslint . --ext .js,.jsx,.ts,.tsx --fix --rule 'no-unused-vars: warn' --rule 'no-undef: error' 2>/dev/null || true
-            echo "ESLINT_ERRORS=0" >> $GITHUB_ENV
-          fi
+        if: env.SCAN_MODE == 'full' || env.SCAN_MODE == 'code-only' || env.SCAN_MODE == 'health-check'
         continue-on-error: true
+        run: |
+          echo "## 🔍 ESLint Scan" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: 🔍 Prettier Format Check
+          if [ -f .eslintrc.js ] || [ -f .eslintrc.json ] || [ -f .eslintrc ] || [ -f .eslintrc.cjs ] || [ -f eslint.config.js ] || [ -f eslint.config.mjs ]; then
+            npx eslint . --ext .js,.jsx,.ts,.tsx --format json --output-file eslint-report.json || true
+            npx eslint . --ext .js,.jsx,.ts,.tsx --fix || true
+
+            ESLINT_COUNT=$(jq '[.[].messages | length] | add // 0' eslint-report.json 2>/dev/null || echo "0")
+            echo "ESLINT_ERRORS=${ESLINT_COUNT:-0}" >> "$GITHUB_ENV"
+            echo "ESLint Issues: ${ESLINT_COUNT:-0}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No ESLint config — using default rules" >> "$GITHUB_STEP_SUMMARY"
+            npx eslint . --ext .js,.jsx,.ts,.tsx --fix --rule 'no-unused-vars: warn' --rule 'no-undef: error' || true
+            echo "ESLINT_ERRORS=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: "🔍 Prettier Format Check"
         id: prettier
-        run: |
-          echo "## 🔍 Prettier Check" >> $GITHUB_STEP_SUMMARY
-          if [ -f .prettierrc ] || [ -f .prettierrc.json ]; then
-            npx prettier --check . 2>&1 | tee prettier.log || true
-            PRETTY_ISSUES=$(grep -c "[error]" prettier.log 2>/dev/null || echo "0")
-            npx prettier --write . 2>/dev/null || true
-            echo "PRETTIER_ISSUES=$PRETTY_ISSUES" >> $GITHUB_ENV
-          else
-            echo "No Prettier config — skipping" >> $GITHUB_STEP_SUMMARY
-            echo "PRETTIER_ISSUES=0" >> $GITHUB_ENV
-          fi
+        if: env.SCAN_MODE == 'full' || env.SCAN_MODE == 'code-only' || env.SCAN_MODE == 'health-check'
         continue-on-error: true
-
-      # ========== SCHEMA SCAN: Supabase / SQL ==========
-      - name: 🔍 Supabase Schema Check
-        id: schema
         run: |
-          echo "## 🔍 Schema Check" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔍 Prettier Check" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -f .prettierrc ] || [ -f .prettierrc.json ] || [ -f .prettierrc.js ] || [ -f .prettierrc.cjs ] || [ -f prettier.config.js ] || [ -f prettier.config.cjs ]; then
+            npx prettier --check . 2>&1 | tee prettier.log || true
+            PRETTY_ISSUES=$(grep -c "\[warn\]\|\[error\]" prettier.log || true)
+            npx prettier --write . || true
+
+            echo "PRETTIER_ISSUES=${PRETTY_ISSUES:-0}" >> "$GITHUB_ENV"
+            echo "Prettier Issues: ${PRETTY_ISSUES:-0}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No Prettier config — skipping" >> "$GITHUB_STEP_SUMMARY"
+            echo "PRETTIER_ISSUES=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: "🔍 Supabase Schema Check"
+        id: schema
+        if: env.SCAN_MODE == 'full' || env.SCAN_MODE == 'schema-only' || env.SCAN_MODE == 'health-check'
+        continue-on-error: true
+        run: |
+          echo "## 🔍 Schema Check" >> "$GITHUB_STEP_SUMMARY"
           SCHEMA_ERRORS=0
 
-          # Check for Supabase schema files
           if [ -d "supabase" ]; then
-            echo "Found supabase/ directory" >> $GITHUB_STEP_SUMMARY
+            echo "Found supabase/ directory" >> "$GITHUB_STEP_SUMMARY"
 
-            # Validate migration files
+            shopt -s nullglob
             for f in supabase/migrations/*.sql; do
-              if [ -f "$f" ]; then
-                # Check for common SQL mistakes
-                if grep -q "VARCHAR.*255" "$f" 2>/dev/null; then
-                  echo "⚠️ $f: VARCHAR(255) detected — consider TEXT" >> schema-warnings.log
-                fi
-                if grep -q "NOT NULL.*DEFAULT NULL" "$f" 2>/dev/null; then
-                  echo "❌ $f: NOT NULL with DEFAULT NULL is contradictory" >> schema-errors.log
-                  SCHEMA_ERRORS=$((SCHEMA_ERRORS + 1))
-                fi
-                # Check for missing RLS
-                if grep -q "CREATE TABLE" "$f" 2>/dev/null && ! grep -q "ENABLE ROW LEVEL SECURITY" "$f" 2>/dev/null; then
-                  echo "⚠️ $f: Table created without RLS — add ALTER TABLE ... ENABLE ROW LEVEL SECURITY" >> schema-warnings.log
-                fi
+              if grep -qi "VARCHAR(255)" "$f"; then
+                echo "⚠️ $f: VARCHAR(255) detected — consider TEXT" >> schema-warnings.log
+              fi
+
+              if grep -qi "NOT NULL.*DEFAULT NULL" "$f"; then
+                echo "❌ $f: NOT NULL with DEFAULT NULL is contradictory" >> schema-errors.log
+                SCHEMA_ERRORS=$((SCHEMA_ERRORS + 1))
+              fi
+
+              if grep -qi "CREATE TABLE" "$f" && ! grep -qi "ENABLE ROW LEVEL SECURITY" "$f"; then
+                echo "⚠️ $f: Table created without RLS — add ALTER TABLE ... ENABLE ROW LEVEL SECURITY" >> schema-warnings.log
               fi
             done
+            shopt -u nullglob
 
-            # Check seed.sql exists
             if [ ! -f "supabase/seed.sql" ]; then
               echo "⚠️ No seed.sql found" >> schema-warnings.log
             fi
           fi
 
-          # Check for SQL files anywhere
-          SQL_FILES=$(find . -name "*.sql" -not -path "*/node_modules/*" | wc -l)
-          echo "SQL files found: $SQL_FILES" >> $GITHUB_STEP_SUMMARY
+          SQL_FILES=$(find . -name "*.sql" -not -path "*/node_modules/*" -not -path "*/.git/*" | wc -l | tr -d ' ')
+          echo "SQL files found: $SQL_FILES" >> "$GITHUB_STEP_SUMMARY"
 
-          # Check for schema drift (if supabase/config.toml exists)
           if [ -f "supabase/config.toml" ]; then
-            echo "Supabase config found" >> $GITHUB_STEP_SUMMARY
+            echo "Supabase config found" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          echo "SCHEMA_ERRORS=$SCHEMA_ERRORS" >> $GITHUB_ENV
-          echo "Schema Errors: $SCHEMA_ERRORS" >> $GITHUB_STEP_SUMMARY
-        continue-on-error: true
+          echo "SCHEMA_ERRORS=$SCHEMA_ERRORS" >> "$GITHUB_ENV"
+          echo "Schema Errors: $SCHEMA_ERRORS" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: 🔍 Database TypeScript Types Check
+      - name: "🔍 Database TypeScript Types Check"
         id: db_types
+        if: env.SCAN_MODE == 'full' || env.SCAN_MODE == 'schema-only' || env.SCAN_MODE == 'health-check'
+        continue-on-error: true
         run: |
-          echo "## 🔍 DB Types Check" >> $GITHUB_STEP_SUMMARY
-          if [ -f "src/types/supabase.ts" ] || [ -f "types/supabase.ts" ] || [ -f "lib/database.types.ts" ]; then
-            echo "✅ Database types file found" >> $GITHUB_STEP_SUMMARY
-            # Check if types are stale (basic heuristic)
-            if [ -d "supabase/migrations" ]; then
-              LAST_MIGRATION=$(ls -t supabase/migrations/*.sql 2>/dev/null | head -1)
-              LAST_TYPE=$(find . -name "*.ts" -path "*/supabase*" -o -name "database.types.ts" 2>/dev/null | head -1)
-              if [ -n "$LAST_MIGRATION" ] && [ -n "$LAST_TYPE" ]; then
-                MIG_TIME=$(stat -c %Y "$LAST_MIGRATION" 2>/dev/null || echo "0")
-                TYPE_TIME=$(stat -c %Y "$LAST_TYPE" 2>/dev/null || echo "0")
-                if [ "$MIG_TIME" -gt "$TYPE_TIME" ]; then
-                  echo "⚠️ Migrations newer than types — types may be stale!" >> $GITHUB_STEP_SUMMARY
-                  echo "DB_TYPES_STALE=true" >> $GITHUB_ENV
-                else
-                  echo "✅ Types appear up-to-date" >> $GITHUB_STEP_SUMMARY
-                  echo "DB_TYPES_STALE=false" >> $GITHUB_ENV
-                fi
+          echo "## 🔍 DB Types Check" >> "$GITHUB_STEP_SUMMARY"
+          echo "DB_TYPES_STALE=false" >> "$GITHUB_ENV"
+
+          TYPE_FILE=$(find . \
+            \( -path "*/node_modules/*" -o -path "*/.git/*" \) -prune -o \
+            \( -path "*/types/supabase.ts" -o -path "*/src/types/supabase.ts" -o -name "database.types.ts" \) \
+            -type f -print | head -1)
+
+          if [ -n "$TYPE_FILE" ]; then
+            echo "✅ Database types file found: $TYPE_FILE" >> "$GITHUB_STEP_SUMMARY"
+
+            LAST_MIGRATION=$(find supabase/migrations -name "*.sql" -type f 2>/dev/null | sort | tail -1 || true)
+
+            if [ -n "$LAST_MIGRATION" ]; then
+              MIG_TIME=$(stat -c %Y "$LAST_MIGRATION" || echo "0")
+              TYPE_TIME=$(stat -c %Y "$TYPE_FILE" || echo "0")
+
+              if [ "$MIG_TIME" -gt "$TYPE_TIME" ]; then
+                echo "⚠️ Migrations newer than types — types may be stale!" >> "$GITHUB_STEP_SUMMARY"
+                echo "DB_TYPES_STALE=true" >> "$GITHUB_ENV"
+              else
+                echo "✅ Types appear up-to-date" >> "$GITHUB_STEP_SUMMARY"
               fi
             fi
           else
-            echo "⚠️ No Supabase TypeScript types found — generate with: supabase gen types typescript" >> $GITHUB_STEP_SUMMARY
-            echo "DB_TYPES_STALE=true" >> $GITHUB_ENV
+            echo "⚠️ No Supabase TypeScript types found — generate with: supabase gen types typescript" >> "$GITHUB_STEP_SUMMARY"
+            echo "DB_TYPES_STALE=true" >> "$GITHUB_ENV"
           fi
-        continue-on-error: true
 
-      # ========== SECURITY SCAN ==========
-      - name: 🔍 Security Scan
+      - name: "🔍 Security Scan"
         id: security
+        if: env.SCAN_MODE == 'full' || env.SCAN_MODE == 'security-only' || env.SCAN_MODE == 'health-check'
+        continue-on-error: true
         run: |
-          echo "## 🔍 Security Scan" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔍 Security Scan" >> "$GITHUB_STEP_SUMMARY"
           SEC_ISSUES=0
 
-          # Check for exposed secrets
-          if grep -r "sk_live_" . --include="*.ts" --include="*.js" --include="*.tsx" --include="*.jsx" --exclude-dir=node_modules 2>/dev/null; then
+          if grep -r "sk_live_" . \
+            --include="*.ts" --include="*.js" --include="*.tsx" --include="*.jsx" \
+            --exclude-dir=node_modules --exclude-dir=.git 2>/dev/null; then
             echo "❌ Found live secret key!" >> security-errors.log
             SEC_ISSUES=$((SEC_ISSUES + 1))
           fi
-          if grep -r "password.*=.*['\"][^'\"]*['\"]" . --include="*.ts" --include="*.js" --exclude-dir=node_modules 2>/dev/null | grep -v "// " | head -5; then
+
+          if grep -r "password.*=.*['\"][^'\"]*['\"]" . \
+            --include="*.ts" --include="*.js" \
+            --exclude-dir=node_modules --exclude-dir=.git 2>/dev/null | grep -v "// " | head -5; then
             echo "⚠️ Possible hardcoded password" >> security-warnings.log
           fi
 
-          # Check .env files aren't committed
-          if git ls-files | grep -q "\.env$"; then
+          if git ls-files | grep -Eq '(^|/)\.env$'; then
             echo "❌ .env file committed to repo!" >> security-errors.log
             SEC_ISSUES=$((SEC_ISSUES + 1))
           fi
 
-          # Check for eval() / new Function()
-          if grep -r "eval(" . --include="*.ts" --include="*.js" --include="*.tsx" --exclude-dir=node_modules 2>/dev/null; then
+          if grep -r "eval(" . \
+            --include="*.ts" --include="*.js" --include="*.tsx" --include="*.jsx" \
+            --exclude-dir=node_modules --exclude-dir=.git 2>/dev/null; then
             echo "⚠️ eval() detected — security risk" >> security-warnings.log
           fi
 
-          echo "SECURITY_ISSUES=$SEC_ISSUES" >> $GITHUB_ENV
-          echo "Security Issues: $SEC_ISSUES" >> $GITHUB_STEP_SUMMARY
-        continue-on-error: true
+          echo "SECURITY_ISSUES=$SEC_ISSUES" >> "$GITHUB_ENV"
+          echo "Security Issues: $SEC_ISSUES" >> "$GITHUB_STEP_SUMMARY"
 
-      # ========== AUTO-FIX ROUTINE ==========
-      - name: 🛠️ Auto-Fix Code Issues
+      - name: "🛠️ Auto-Fix Code Issues"
         id: autofix
+        if: env.SCAN_MODE == 'full' || env.SCAN_MODE == 'code-only'
         run: |
-          echo "## 🛠️ Auto-Fix" >> $GITHUB_STEP_SUMMARY
+          echo "## 🛠️ Auto-Fix" >> "$GITHUB_STEP_SUMMARY"
           FIXES=0
 
-          # Fix 1: Missing semicolons in JS/TS
-          find . -path ./node_modules -prune -o \( -name "*.js" -o -name "*.ts" -o -name "*.jsx" -o -name "*.tsx" \) -print | while read f; do
-            if [ -f "$f" ]; then
-              # Add semicolons where missing (simple heuristic)
-              sed -i 's/\([a-zA-Z0-9_)\]\]\)\s*$/;/g' "$f" 2>/dev/null || true
+          find . \
+            \( -path "./node_modules" -o -path "./.git" \) -prune -o \
+            \( -name "*.js" -o -name "*.ts" -o -name "*.jsx" -o -name "*.tsx" \) \
+            -type f -print | while read -r f; do
+
+            BEFORE_HASH=$(sha256sum "$f" | awk '{print $1}')
+
+            # Fix 1: Add semicolons to simple statement endings.
+            # This is intentionally conservative.
+            sed -i -E '/^\s*(if|for|while|switch|function|class|else|try|catch|finally|do)\b/! s/([A-Za-z0-9_$)\]"'"'"'`])$/\1;/' "$f" || true
+
+            AFTER_HASH=$(sha256sum "$f" | awk '{print $1}')
+            if [ "$BEFORE_HASH" != "$AFTER_HASH" ]; then
+              FIXES=$((FIXES + 1))
             fi
           done
 
-          # Fix 2: React class -> className
-          find . -path ./node_modules -prune -o \( -name "*.tsx" -o -name "*.jsx" \) -print | while read f; do
-            if [ -f "$f" ]; then
-              sed -i 's/class=/className=/g' "$f" 2>/dev/null || true
-              sed -i 's/for=/htmlFor=/g' "$f" 2>/dev/null || true
+          find . \
+            \( -path "./node_modules" -o -path "./.git" \) -prune -o \
+            \( -name "*.tsx" -o -name "*.jsx" \) \
+            -type f -print | while read -r f; do
+
+            BEFORE_HASH=$(sha256sum "$f" | awk '{print $1}')
+
+            # Fix 2: React JSX attribute corrections.
+            sed -i -E 's/\bclass=/className=/g' "$f" || true
+            sed -i -E 's/\bfor=/htmlFor=/g' "$f" || true
+
+            AFTER_HASH=$(sha256sum "$f" | awk '{print $1}')
+            if [ "$BEFORE_HASH" != "$AFTER_HASH" ]; then
+              FIXES=$((FIXES + 1))
             fi
           done
 
-          # Fix 3: Fix import paths (common relative path issues)
-          find . -path ./node_modules -prune -o \( -name "*.ts" -o -name "*.tsx" \) -print | while read f; do
-            if [ -f "$f" ]; then
-              # Fix double slashes in imports
-              sed -i "s|from '\./\./|from '../|g" "$f" 2>/dev/null || true
-              sed -i "s|from '\.\./\./|from '../../|g" "$f" 2>/dev/null || true
+          find . \
+            \( -path "./node_modules" -o -path "./.git" \) -prune -o \
+            \( -name "*.ts" -o -name "*.tsx" \) \
+            -type f -print | while read -r f; do
+
+            BEFORE_HASH=$(sha256sum "$f" | awk '{print $1}')
+
+            # Fix 3: Normalize common import path typos.
+            sed -i -E "s|from ['\"]\./\./|from '../|g" "$f" || true
+            sed -i -E "s|from ['\"]\.\./\./|from '../../|g" "$f" || true
+
+            AFTER_HASH=$(sha256sum "$f" | awk '{print $1}')
+            if [ "$BEFORE_HASH" != "$AFTER_HASH" ]; then
+              FIXES=$((FIXES + 1))
             fi
           done
 
-          # Fix 4: Add missing React imports for JSX files
-          find . -path ./node_modules -prune -o \( -name "*.tsx" -o -name "*.jsx" \) -print | while read f; do
-            if [ -f "$f" ]; then
-              if grep -q "React" "$f" 2>/dev/null && ! grep -q "import.*React" "$f" 2>/dev/null; then
-                sed -i '1s/^/import React from "react";\n/' "$f" 2>/dev/null || true
-                FIXES=$((FIXES + 1))
-              fi
+          find . \
+            \( -path "./node_modules" -o -path "./.git" \) -prune -o \
+            \( -name "*.tsx" -o -name "*.jsx" \) \
+            -type f -print | while read -r f; do
+
+            BEFORE_HASH=$(sha256sum "$f" | awk '{print $1}')
+
+            # Fix 4: Add missing React import for files that reference React.
+            if grep -q "React" "$f" && ! grep -qE "import .*React|import React" "$f"; then
+              sed -i '1i import React from "react";' "$f" || true
+            fi
+
+            AFTER_HASH=$(sha256sum "$f" | awk '{print $1}')
+            if [ "$BEFORE_HASH" != "$AFTER_HASH" ]; then
+              FIXES=$((FIXES + 1))
             fi
           done
 
-          # Fix 5: Remove console.log in production files
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            find . -path ./node_modules -prune -o \( -name "*.ts" -o -name "*.tsx" \) -print | while read f; do
-              if [ -f "$f" ]; then
-                sed -i '/console\.log(/d' "$f" 2>/dev/null || true
-                sed -i '/console\.warn(/d' "$f" 2>/dev/null || true
-                sed -i '/console\.error(/d' "$f" 2>/dev/null || true
-              fi
+            find . \
+              \( -path "./node_modules" -o -path "./.git" \) -prune -o \
+              \( -name "*.ts" -o -name "*.tsx" \) \
+              -type f -print | while read -r f; do
+
+              sed -i '/console\.log(/d' "$f" || true
+              sed -i '/console\.warn(/d' "$f" || true
+              sed -i '/console\.error(/d' "$f" || true
             done
           fi
 
-          echo "Auto-fixes applied: $FIXES" >> $GITHUB_STEP_SUMMARY
+          # Run parser-aware formatters after heuristic fixes.
+          if [ -f package.json ]; then
+            npx eslint . --ext .js,.jsx,.ts,.tsx --fix || true
+            npx prettier --write . || true
+          fi
 
-      # ========== HEALTH SCORE CALCULATION ==========
-      - name: 📊 Calculate Repo Health Score
+          echo "Auto-fixes applied." >> "$GITHUB_STEP_SUMMARY"
+          echo "FIXES_APPLIED=true" >> "$GITHUB_ENV"
+
+      - name: "📊 Calculate Repo Health Score"
         id: health
         run: |
-          echo "## 📊 Health Score" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 Health Score" >> "$GITHUB_STEP_SUMMARY"
 
-          # Count files
-          JS_FILES=$(find . -name "*.js" -o -name "*.ts" -o -name "*.jsx" -o -name "*.tsx" | grep -v node_modules | wc -l)
-          SQL_FILES=$(find . -name "*.sql" -not -path "*/node_modules/*" | wc -l)
+          JS_FILES=$(find . \
+            \( -path "./node_modules" -o -path "./.git" \) -prune -o \
+            \( -name "*.js" -o -name "*.ts" -o -name "*.jsx" -o -name "*.tsx" \) \
+            -type f -print | wc -l | tr -d ' ')
 
-          # Calculate penalties
+          SQL_FILES=$(find . -name "*.sql" -not -path "*/node_modules/*" -not -path "*/.git/*" | wc -l | tr -d ' ')
+
           TSC_PENALTY=${TSC_ERRORS:-0}
           ESLINT_PENALTY=${ESLINT_ERRORS:-0}
           SCHEMA_PENALTY=${SCHEMA_ERRORS:-0}
@@ -280,32 +338,27 @@ jobs:
           PRETTY_PENALTY=${PRETTIER_ISSUES:-0}
 
           TOTAL_PENALTY=$((TSC_PENALTY + ESLINT_PENALTY + SCHEMA_PENALTY + SEC_PENALTY + PRETTY_PENALTY))
+          PENALTY=$((TOTAL_PENALTY * 2))
+          HEALTH=$((100 - PENALTY))
 
-          if [ "$JS_FILES" -gt 0 ]; then
-            BASE_SCORE=100
-            PENALTY=$((TOTAL_PENALTY * 2))
-            HEALTH=$((BASE_SCORE - PENALTY))
-            [ "$HEALTH" -lt 0 ] && HEALTH=0
-          else
-            HEALTH=100
+          if [ "$HEALTH" -lt 0 ]; then
+            HEALTH=0
           fi
 
-          echo "HEALTH_SCORE=$HEALTH" >> $GITHUB_ENV
-          echo "Total Files: $JS_FILES JS/TS + $SQL_FILES SQL" >> $GITHUB_STEP_SUMMARY
-          echo "Penalties: TS=$TSC_PENALTY, ESLint=$ESLINT_PENALTY, Schema=$SCHEMA_PENALTY, Security=$SEC_PENALTY, Format=$PRETTY_PENALTY" >> $GITHUB_STEP_SUMMARY
-          echo "**Health Score: $HEALTH/100**" >> $GITHUB_STEP_SUMMARY
+          echo "HEALTH_SCORE=$HEALTH" >> "$GITHUB_ENV"
+          echo "Total Files: $JS_FILES JS/TS + $SQL_FILES SQL" >> "$GITHUB_STEP_SUMMARY"
+          echo "Penalties: TS=$TSC_PENALTY, ESLint=$ESLINT_PENALTY, Schema=$SCHEMA_PENALTY, Security=$SEC_PENALTY, Format=$PRETTY_PENALTY" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Health Score: $HEALTH/100**" >> "$GITHUB_STEP_SUMMARY"
 
-          # Fail if below threshold
           if [ "$HEALTH" -lt "$HEALTH_THRESHOLD" ]; then
-            echo "❌ Health score $HEALTH below threshold $HEALTH_THRESHOLD" >> $GITHUB_STEP_SUMMARY
-            echo "HEALTH_FAILED=true" >> $GITHUB_ENV
+            echo "❌ Health score $HEALTH below threshold $HEALTH_THRESHOLD" >> "$GITHUB_STEP_SUMMARY"
+            echo "HEALTH_FAILED=true" >> "$GITHUB_ENV"
           else
-            echo "✅ Health score acceptable" >> $GITHUB_STEP_SUMMARY
-            echo "HEALTH_FAILED=false" >> $GITHUB_ENV
+            echo "✅ Health score acceptable" >> "$GITHUB_STEP_SUMMARY"
+            echo "HEALTH_FAILED=false" >> "$GITHUB_ENV"
           fi
 
-      # ========== CREATE FIX PR ==========
-      - name: 📝 Create Fix PR
+      - name: "📝 Create Fix PR"
         if: steps.autofix.outcome == 'success'
         uses: peter-evans/create-pull-request@v5
         with:
@@ -318,19 +371,20 @@ jobs:
             | Metric | Value |
             |--------|-------|
             | **Health Score** | ${{ env.HEALTH_SCORE }}/100 |
-            | **TypeScript Errors** | ${{ env.TSC_ERRORS }} |
-            | **ESLint Issues** | ${{ env.ESLINT_ERRORS }} |
-            | **Schema Issues** | ${{ env.SCHEMA_ERRORS }} |
-            | **Security Issues** | ${{ env.SECURITY_ISSUES }} |
-            | **Prettier Issues** | ${{ env.PRETTIER_ISSUES }} |
-            | **DB Types Stale** | ${{ env.DB_TYPES_STALE }} |
+            | **TypeScript Errors** | ${{ env.TSC_ERRORS || 0 }} |
+            | **ESLint Issues** | ${{ env.ESLINT_ERRORS || 0 }} |
+            | **Schema Issues** | ${{ env.SCHEMA_ERRORS || 0 }} |
+            | **Security Issues** | ${{ env.SECURITY_ISSUES || 0 }} |
+            | **Prettier Issues** | ${{ env.PRETTIER_ISSUES || 0 }} |
+            | **DB Types Stale** | ${{ env.DB_TYPES_STALE || 'false' }} |
 
             ### Auto-Fixes Applied:
-            - ✅ Syntax corrections (semicolons, imports)
-            - ✅ React fixes (class → className, for → htmlFor)
+            - ✅ Syntax corrections
+            - ✅ React fixes: class → className, for → htmlFor
             - ✅ Import path normalization
             - ✅ Missing React imports added
-            - ✅ console.log removed (main branch only)
+            - ✅ console.log removed on main branch
+            - ✅ ESLint and Prettier auto-fixes applied
 
             ### Schema Checks:
             - Supabase migrations validated
@@ -338,31 +392,32 @@ jobs:
             - TypeScript types freshness verified
 
             ### Manual Review Needed:
-            Please review before merging.
+            This workflow commits corrections to this PR only. Review before merging.
 
             ---
-            *Generated by Agent 18 (Hexagram 18 — Corrector/Work on What Has Been Spoilt)*
-            *Mode: ${{ github.event.inputs.mode || 'scheduled' }}*
+            *Generated by Agent 18 (Hexagram 18 — Corrector/Work on What Has Been Spoilt)*  
+            *Mode: ${{ env.SCAN_MODE }}*
           branch: agent-18-auto-fix-${{ github.run_id }}
           delete-branch: true
 
-      # ========== FAIL BUILD IF HEALTH TOO LOW ==========
-      - name: ❌ Fail if Health Below Threshold
-        if: env.HEALTH_FAILED == 'true'
-        run: |
-          echo "❌ Repo health score ${{ env.HEALTH_SCORE }} is below threshold ${{ env.HEALTH_THRESHOLD }}"
-          exit 1
-
-      # ========== CREATE ISSUE FOR CRITICAL ERRORS ==========
-      - name: 🚨 Create Issue for Critical Errors
-        if: env.SECURITY_ISSUES > 0 || env.SCHEMA_ERRORS > 0
+      - name: "🚨 Create Issue for Critical Errors"
+        if: env.SECURITY_ISSUES != '0' || env.SCHEMA_ERRORS != '0'
         uses: actions/github-script@v7
         with:
           script: |
             const issues = [];
-            if (process.env.SECURITY_ISSUES > 0) issues.push(`🔒 ${process.env.SECURITY_ISSUES} security issues found`);
-            if (process.env.SCHEMA_ERRORS > 0) issues.push(`🗄️ ${process.env.SCHEMA_ERRORS} schema errors found`);
-            if (process.env.DB_TYPES_STALE === 'true') issues.push(`📋 Database types may be stale`);
+
+            if (Number(process.env.SECURITY_ISSUES || 0) > 0) {
+              issues.push(`🔒 ${process.env.SECURITY_ISSUES} security issues found`);
+            }
+
+            if (Number(process.env.SCHEMA_ERRORS || 0) > 0) {
+              issues.push(`🗄️ ${process.env.SCHEMA_ERRORS} schema errors found`);
+            }
+
+            if (process.env.DB_TYPES_STALE === 'true') {
+              issues.push(`📋 Database types may be stale`);
+            }
 
             const body = `## 🤖 Agent 18 — Critical Issues Requiring Manual Fix
 
@@ -372,19 +427,25 @@ jobs:
             ${issues.map(i => `- ${i}`).join('\n')}
 
             ### All Metrics:
-            - TypeScript Errors: ${process.env.TSC_ERRORS}
-            - ESLint Issues: ${process.env.ESLINT_ERRORS}
-            - Schema Issues: ${process.env.SCHEMA_ERRORS}
-            - Security Issues: ${process.env.SECURITY_ISSUES}
-            - Prettier Issues: ${process.env.PRETTIER_ISSUES}
+            - TypeScript Errors: ${process.env.TSC_ERRORS || 0}
+            - ESLint Issues: ${process.env.ESLINT_ERRORS || 0}
+            - Schema Issues: ${process.env.SCHEMA_ERRORS || 0}
+            - Security Issues: ${process.env.SECURITY_ISSUES || 0}
+            - Prettier Issues: ${process.env.PRETTIER_ISSUES || 0}
 
             ---
             *Generated by Agent 18 Corrector* | Run: ${context.runId}`;
 
-            github.rest.issues.create({
+            await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: `🤖 Agent 18: ${issues.length} critical issues need manual fix`,
-              body: body,
+              body,
               labels: ['agent-18', 'auto-generated', 'critical', 'needs-fix']
             });
+
+      - name: "❌ Fail if Health Below Threshold"
+        if: env.HEALTH_FAILED == 'true'
+        run: |
+          echo "❌ Repo health score ${{ env.HEALTH_SCORE }} is below threshold ${{ env.HEALTH_THRESHOLD }}"
+          exit 1
