@@ -1,0 +1,367 @@
+name: Agent 18 Corrector Ultimate
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Scan mode"
+        required: true
+        default: "full"
+        type: choice
+        options:
+          - full
+          - code-only
+          - schema-only
+          - security-only
+          - python-only
+          - json-only
+          - docker-only
+          - health-check
+
+env:
+  HEALTH_THRESHOLD: "80"
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  corrector:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Node dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          elif [ -f package.json ]; then
+            npm install
+          fi
+          npm install -g prettier typescript eslint
+
+      - name: Install Python tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black isort bandit pyyaml
+
+      - name: TypeScript Check
+        id: tsc
+        continue-on-error: true
+        run: |
+          echo "## TypeScript Check" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f tsconfig.json ]; then
+            npx tsc --noEmit 2>&1 | tee tsc-errors.log || true
+            TSC_COUNT=$(grep -c "error TS" tsc-errors.log 2>/dev/null || echo "0")
+          else
+            TSC_COUNT=0
+            echo "No tsconfig.json found" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "TSC_ERRORS=$TSC_COUNT" >> "$GITHUB_ENV"
+          echo "TypeScript Errors: $TSC_COUNT" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: ESLint Scan and Auto-Fix
+        id: eslint
+        continue-on-error: true
+        run: |
+          echo "## ESLint Scan" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f package.json ]; then
+            npx eslint . --ext .js,.jsx,.ts,.tsx --fix 2>&1 | tee eslint.log || true
+            ESLINT_COUNT=$(grep -ci "error" eslint.log 2>/dev/null || echo "0")
+          else
+            ESLINT_COUNT=0
+          fi
+          echo "ESLINT_ERRORS=$ESLINT_COUNT" >> "$GITHUB_ENV"
+          echo "ESLint Issues: $ESLINT_COUNT" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Prettier Format
+        id: prettier
+        continue-on-error: true
+        run: |
+          echo "## Prettier Format" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f package.json ]; then
+            npx prettier --write "**/*.{js,jsx,ts,tsx,json,css,md,html,yml,yaml}" --ignore-path .gitignore 2>&1 | tee prettier.log || true
+            PRETTIER_ISSUES=$(grep -ci "error" prettier.log 2>/dev/null || echo "0")
+          else
+            PRETTIER_ISSUES=0
+          fi
+          echo "PRETTIER_ISSUES=$PRETTIER_ISSUES" >> "$GITHUB_ENV"
+          echo "Prettier Issues: $PRETTIER_ISSUES" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Safe Text Corrections
+        id: text_safe
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              "I'll": "I will",
+              "I'm": "I am",
+              "What's": "What is",
+              "what's": "what is",
+              "can't": "cannot",
+              "Can't": "Cannot",
+              "won't": "will not",
+              "Won't": "Will not",
+          }
+
+          allowed = {".ts", ".tsx", ".js", ".jsx", ".md", ".html"}
+          skip = {"node_modules", ".next", "dist", "build", ".git"}
+
+          changed = []
+          for path in Path(".").rglob("*"):
+              if not path.is_file():
+                  continue
+              if path.suffix not in allowed:
+                  continue
+              if any(part in skip for part in path.parts):
+                  continue
+
+              text = path.read_text(encoding="utf-8", errors="ignore")
+              updated = text
+              for old, new in replacements.items():
+                  updated = updated.replace(old, new)
+
+              if updated != text:
+                  path.write_text(updated, encoding="utf-8")
+                  changed.append(str(path))
+
+          print("Changed files:")
+          for file in changed:
+              print(file)
+          PY
+
+      - name: Python Checks and Auto-Fix
+        id: python
+        continue-on-error: true
+        run: |
+          echo "## Python Checks" >> "$GITHUB_STEP_SUMMARY"
+          PY_FILES=$(find . -name "*.py" -not -path "*/node_modules/*" -not -path "*/.venv/*" -not -path "*/__pycache__/*" | wc -l)
+
+          if [ "$PY_FILES" -gt 0 ]; then
+            black . || true
+            isort . || true
+            flake8 . --exclude=node_modules,.venv,__pycache__ --output-file=flake8-report.txt || true
+            bandit -r . -f json -o bandit-report.json --exclude ./node_modules,./.venv,./__pycache__ || true
+
+            FLAKE8_ERRORS=$(grep -c ":" flake8-report.txt 2>/dev/null || echo "0")
+            BANDIT_ISSUES=$(python3 -c "import json; print(len(json.load(open('bandit-report.json')).get('results', [])))" 2>/dev/null || echo "0")
+          else
+            FLAKE8_ERRORS=0
+            BANDIT_ISSUES=0
+          fi
+
+          echo "FLAKE8_ERRORS=$FLAKE8_ERRORS" >> "$GITHUB_ENV"
+          echo "BANDIT_ISSUES=$BANDIT_ISSUES" >> "$GITHUB_ENV"
+          echo "Python files: $PY_FILES" >> "$GITHUB_STEP_SUMMARY"
+          echo "Flake8 Issues: $FLAKE8_ERRORS" >> "$GITHUB_STEP_SUMMARY"
+          echo "Bandit Issues: $BANDIT_ISSUES" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: JSON and YAML Validation
+        id: validation
+        continue-on-error: true
+        run: |
+          echo "## JSON/YAML Validation" >> "$GITHUB_STEP_SUMMARY"
+
+          python3 <<'PY'
+          import json
+          import yaml
+          from pathlib import Path
+
+          json_errors = 0
+          yaml_errors = 0
+          skip = {"node_modules", ".next", "dist", "build", ".git"}
+
+          for path in Path(".").rglob("*"):
+              if not path.is_file():
+                  continue
+              if any(part in skip for part in path.parts):
+                  continue
+
+              try:
+                  if path.suffix == ".json":
+                      json.loads(path.read_text(encoding="utf-8"))
+                  elif path.suffix in {".yml", ".yaml"}:
+                      yaml.safe_load(path.read_text(encoding="utf-8"))
+              except Exception as exc:
+                  if path.suffix == ".json":
+                      json_errors += 1
+                  else:
+                      yaml_errors += 1
+                  print(f"{path}: {exc}")
+
+          with open("validation.env", "w") as f:
+              f.write(f"JSON_ERRORS={json_errors}\n")
+              f.write(f"YAML_ERRORS={yaml_errors}\n")
+          PY
+
+          cat validation.env >> "$GITHUB_ENV"
+          cat validation.env >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Supabase Schema Check
+        id: schema
+        continue-on-error: true
+        run: |
+          echo "## Supabase Schema Check" >> "$GITHUB_STEP_SUMMARY"
+          SCHEMA_ERRORS=0
+
+          if [ -d "supabase/migrations" ]; then
+            for f in supabase/migrations/*.sql; do
+              [ -f "$f" ] || continue
+
+              if grep -q "NOT NULL.*DEFAULT NULL" "$f"; then
+                echo "NOT NULL with DEFAULT NULL in $f" >> "$GITHUB_STEP_SUMMARY"
+                SCHEMA_ERRORS=$((SCHEMA_ERRORS + 1))
+              fi
+
+              if grep -q "CREATE TABLE" "$f" && ! grep -q "ENABLE ROW LEVEL SECURITY" "$f"; then
+                echo "Warning: possible table without RLS in $f" >> "$GITHUB_STEP_SUMMARY"
+              fi
+            done
+          fi
+
+          echo "SCHEMA_ERRORS=$SCHEMA_ERRORS" >> "$GITHUB_ENV"
+          echo "Schema Errors: $SCHEMA_ERRORS" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Security Scan
+        id: security
+        continue-on-error: true
+        run: |
+          echo "## Security Scan" >> "$GITHUB_STEP_SUMMARY"
+          SECURITY_ISSUES=0
+
+          if grep -r "sk_live_" . \
+            --include="*.ts" --include="*.js" --include="*.tsx" --include="*.jsx" --include="*.py" \
+            --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.venv 2>/dev/null; then
+            SECURITY_ISSUES=$((SECURITY_ISSUES + 1))
+          fi
+
+          if git ls-files | grep -qE '(^|/)\.env$'; then
+            echo ".env file committed to repo" >> "$GITHUB_STEP_SUMMARY"
+            SECURITY_ISSUES=$((SECURITY_ISSUES + 1))
+          fi
+
+          echo "SECURITY_ISSUES=$SECURITY_ISSUES" >> "$GITHUB_ENV"
+          echo "Security Issues: $SECURITY_ISSUES" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build Check
+        id: build
+        continue-on-error: true
+        run: |
+          echo "## Build Check" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f package.json ]; then
+            npm run build
+          else
+            echo "No package.json found"
+          fi
+
+      - name: Calculate Health Score
+        id: health
+        run: |
+          TSC=${TSC_ERRORS:-0}
+          ESLINT=${ESLINT_ERRORS:-0}
+          PRETTIER=${PRETTIER_ISSUES:-0}
+          FLAKE8=${FLAKE8_ERRORS:-0}
+          BANDIT=${BANDIT_ISSUES:-0}
+          JSON=${JSON_ERRORS:-0}
+          YAML=${YAML_ERRORS:-0}
+          SCHEMA=${SCHEMA_ERRORS:-0}
+          SECURITY=${SECURITY_ISSUES:-0}
+
+          TOTAL=$((TSC + ESLINT + PRETTIER + FLAKE8 + BANDIT + JSON + YAML + SCHEMA + SECURITY))
+          HEALTH=$((100 - TOTAL * 2))
+
+          if [ "$HEALTH" -lt 0 ]; then
+            HEALTH=0
+          fi
+
+          echo "HEALTH_SCORE=$HEALTH" >> "$GITHUB_ENV"
+          echo "## Health Score" >> "$GITHUB_STEP_SUMMARY"
+          echo "Health Score: $HEALTH/100" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$HEALTH" -lt "$HEALTH_THRESHOLD" ]; then
+            echo "HEALTH_FAILED=true" >> "$GITHUB_ENV"
+          else
+            echo "HEALTH_FAILED=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Create Fix PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "Agent 18: safe auto-corrections"
+          title: "Agent 18 Corrector - Safe Auto-Fix Report"
+          branch: agent-18-auto-fix-${{ github.run_id }}
+          delete-branch: true
+          body: |
+            ## Agent 18 Corrector Report
+
+            | Metric | Value |
+            |--------|-------|
+            | Health Score | ${{ env.HEALTH_SCORE }}/100 |
+            | TypeScript Errors | ${{ env.TSC_ERRORS }} |
+            | ESLint Issues | ${{ env.ESLINT_ERRORS }} |
+            | Prettier Issues | ${{ env.PRETTIER_ISSUES }} |
+            | Python Flake8 | ${{ env.FLAKE8_ERRORS }} |
+            | Python Bandit | ${{ env.BANDIT_ISSUES }} |
+            | JSON Errors | ${{ env.JSON_ERRORS }} |
+            | YAML Errors | ${{ env.YAML_ERRORS }} |
+            | Schema Issues | ${{ env.SCHEMA_ERRORS }} |
+            | Security Issues | ${{ env.SECURITY_ISSUES }} |
+
+            Review before merging.
+
+            This workflow opens a PR instead of pushing fixes directly to main.
+
+      - name: Create Issue for Critical Errors
+        if: env.SECURITY_ISSUES != '0' || env.SCHEMA_ERRORS != '0' || env.BANDIT_ISSUES != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = [
+              '## Agent 18 Critical Issues',
+              '',
+              `Health Score: ${process.env.HEALTH_SCORE}/100`,
+              '',
+              `Security Issues: ${process.env.SECURITY_ISSUES}`,
+              `Schema Issues: ${process.env.SCHEMA_ERRORS}`,
+              `Python Bandit Issues: ${process.env.BANDIT_ISSUES}`,
+              '',
+              `Run: ${context.runId}`,
+            ].join('\n')
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Agent 18: Critical issues need manual review',
+              body,
+              labels: ['agent-18', 'critical', 'needs-review']
+            })
+
+      - name: Fail if Health Below Threshold
+        if: env.HEALTH_FAILED == 'true'
+        run: |
+          echo "Repo health score ${{ env.HEALTH_SCORE }} is below threshold ${{ env.HEALTH_THRESHOLD }}"
+          exit 1
