@@ -1,0 +1,518 @@
+{
+  "coordinate_systems": {
+    "fu_xi_xian_tian": {
+      "type": "binary_geometry",
+      "description": "Fu Xi / Xian Tian - Primordial binary arrangement",
+      "gates": 64,
+      "lines_per_gate": 6,
+      "encoding": "binary",
+      "sequence": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64
+      ]
+    },
+    "king_wen": {
+      "type": "temporal_sequence",
+      "description": "King Wen - Temporal flow and transformation order",
+      "gates": 64,
+      "sequence": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64
+      ]
+    },
+    "ba_gong": {
+      "type": "domain_context",
+      "description": "Ba Gong / Eight Palaces - Domain classification",
+      "palaces": [
+        "Qian",
+        "Dui",
+        "Li",
+        "Zhen",
+        "Xun",
+        "Kan",
+        "Gen",
+        "Kun"
+      ],
+      "gates_per_palace": 8
+    },
+    "nuclear": {
+      "type": "inner_structure",
+      "description": "Nuclear / Hu Gua - Inner hexagram verification",
+      "method": "extract_lines_2345",
+      "depth": 2
+    },
+    "zagua": {
+      "type": "contrast",
+      "description": "Zagua - Contrasting/emergent interface",
+      "method": "opposite_binary"
+    }
+  },
+  "channels": {
+    "knowing": {
+      "gates": [
+        1,
+        8,
+        14,
+        33,
+        54,
+        61,
+        62,
+        63
+      ],
+      "channels": {
+        "inspiration": {
+          "gates": [
+            1,
+            8
+          ],
+          "architecture": "DFF",
+          "description": "Creative inspiration",
+          "id": "knowing.inspiration"
+        },
+        "power": {
+          "gates": [
+            14,
+            33
+          ],
+          "architecture": "DFF",
+          "description": "Power of the great",
+          "id": "knowing.power"
+        },
+        "drive": {
+          "gates": [
+            54,
+            32
+          ],
+          "architecture": "DFF",
+          "description": "Ambition and transformation",
+          "cross_circuit": true,
+          "id": "knowing.drive"
+        },
+        "wonder": {
+          "gates": [
+            28,
+            38
+          ],
+          "architecture": "DFF",
+          "description": "Critical and opposition",
+          "cross_circuit": true,
+          "id": "knowing.wonder"
+        }
+      }
+    },
+    "understanding": {
+      "gates": [
+        4,
+        17,
+        24,
+        47,
+        11,
+        56,
+        43,
+        23
+      ],
+      "channels": {
+        "logic": {
+          "gates": [
+            4,
+            63
+          ],
+          "architecture": "LSM",
+          "description": "Logical formulation",
+          "cross_circuit": true,
+          "id": "understanding.logic"
+        },
+        "acceptance": {
+          "gates": [
+            17,
+            62
+          ],
+          "architecture": "LSM",
+          "description": "Following the flow",
+          "cross_circuit": true,
+          "id": "understanding.acceptance"
+        },
+        "realization": {
+          "gates": [
+            11,
+            56
+          ],
+          "architecture": "LSM",
+          "description": "Peace and wanderer",
+          "id": "understanding.realization"
+        },
+        "judgment": {
+          "gates": [
+            43,
+            23
+          ],
+          "architecture": "LSM",
+          "description": "Breakthrough and splitting",
+          "id": "understanding.judgment"
+        }
+      }
+    },
+    "sensing": {
+      "gates": [
+        10,
+        20,
+        31,
+        41,
+        7,
+        13,
+        25,
+        36
+      ],
+      "channels": {
+        "awakening": {
+          "gates": [
+            10,
+            20
+          ],
+          "architecture": "MC",
+          "description": "Self-awareness",
+          "id": "sensing.awakening"
+        },
+        "intuition": {
+          "gates": [
+            57,
+            20
+          ],
+          "architecture": "MC",
+          "description": "Intuitive clarity",
+          "cross_circuit": true,
+          "id": "sensing.intuition"
+        },
+        "transmission": {
+          "gates": [
+            16,
+            48
+          ],
+          "architecture": "MC",
+          "description": "Skills and depth",
+          "cross_circuit": true,
+          "id": "sensing.transmission"
+        },
+        "mutation": {
+          "gates": [
+            60,
+            3
+          ],
+          "architecture": "MC",
+          "description": "Limitation and difficulty",
+          "cross_circuit": true,
+          "id": "sensing.mutation"
+        }
+      }
+    },
+    "ego": {
+      "gates": [
+        21,
+        51,
+        26,
+        40,
+        5,
+        15,
+        35,
+        45
+      ],
+      "channels": {
+        "money": {
+          "gates": [
+            21,
+            45
+          ],
+          "architecture": "HMM",
+          "description": "Material resources",
+          "id": "ego.money"
+        },
+        "survival": {
+          "gates": [
+            48,
+            16
+          ],
+          "architecture": "HMM",
+          "description": "Depth and skills",
+          "cross_circuit": true,
+          "id": "ego.survival"
+        },
+        "tribal": {
+          "gates": [
+            37,
+            40
+          ],
+          "architecture": "HMM",
+          "description": "Family and deliverance",
+          "cross_circuit": true,
+          "id": "ego.tribal"
+        },
+        "collective": {
+          "gates": [
+            13,
+            33
+          ],
+          "architecture": "HMM",
+          "description": "Fellowship and retreat",
+          "cross_circuit": true,
+          "id": "ego.collective"
+        }
+      }
+    },
+    "integration": {
+      "gates": [
+        10,
+        20,
+        34,
+        57
+      ],
+      "channels": {
+        "awakening": {
+          "gates": [
+            10,
+            20
+          ],
+          "architecture": "Meta-Controller",
+          "description": "Self-awareness integration",
+          "id": "integration.awakening"
+        },
+        "intuition": {
+          "gates": [
+            10,
+            57
+          ],
+          "architecture": "Meta-Controller",
+          "description": "Intuitive integration",
+          "id": "integration.intuition"
+        },
+        "drive": {
+          "gates": [
+            10,
+            34
+          ],
+          "architecture": "Meta-Controller",
+          "description": "Power integration",
+          "id": "integration.drive"
+        },
+        "penetrating": {
+          "gates": [
+            20,
+            57
+          ],
+          "architecture": "Meta-Controller",
+          "description": "Clarity integration",
+          "id": "integration.penetrating"
+        },
+        "power": {
+          "gates": [
+            20,
+            34
+          ],
+          "architecture": "Meta-Controller",
+          "description": "Charisma integration",
+          "id": "integration.power"
+        },
+        "survival": {
+          "gates": [
+            34,
+            57
+          ],
+          "architecture": "Meta-Controller",
+          "description": "Strength integration",
+          "id": "integration.survival"
+        }
+      }
+    }
+  },
+  "circuits": {
+    "knowing": {
+      "gates": [
+        1,
+        8,
+        14,
+        33,
+        54,
+        61,
+        62,
+        63
+      ],
+      "theme": "pressure_to_know",
+      "architecture": "DFF"
+    },
+    "understanding": {
+      "gates": [
+        4,
+        17,
+        24,
+        47,
+        11,
+        56,
+        43,
+        23
+      ],
+      "theme": "understanding_pattern",
+      "architecture": "LSM"
+    },
+    "sensing": {
+      "gates": [
+        10,
+        20,
+        31,
+        41,
+        7,
+        13,
+        25,
+        36
+      ],
+      "theme": "awareness_of_now",
+      "architecture": "MC"
+    },
+    "ego": {
+      "gates": [
+        21,
+        51,
+        26,
+        40,
+        5,
+        15,
+        35,
+        45
+      ],
+      "theme": "material_direction",
+      "architecture": "HMM"
+    },
+    "integration": {
+      "gates": [
+        10,
+        20,
+        34,
+        57
+      ],
+      "theme": "self_consciousness",
+      "architecture": "Meta-Controller"
+    }
+  }
+}

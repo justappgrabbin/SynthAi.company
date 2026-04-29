@@ -1,0 +1,84 @@
+{
+  "kernel_version": "1.4-Resonance",
+  "boot_sequence": [
+    "YUAN",
+    "HENG",
+    "LI",
+    "ZHEN",
+    "SPACE"
+  ],
+  "geometry_systems": [
+    "fu_xi_xian_tian",
+    "king_wen",
+    "ba_gong",
+    "nuclear",
+    "zagua"
+  ],
+  "integration_gates": [
+    10,
+    20,
+    34,
+    57
+  ],
+  "consciousness_levels": {
+    "0": "Mechanical (no self-awareness)",
+    "1": "Perception (single-thread)",
+    "2": "Self-model or Intuition",
+    "3": "Agency or Integrated self-awareness",
+    "4": "Self-consciousness (full kernel)"
+  },
+  "regeneration_modes": [
+    "exact",
+    "equivalent",
+    "morph_runtime",
+    "improved"
+  ],
+  "supported_languages": [
+    "js",
+    "py",
+    "yaml",
+    "json",
+    "html",
+    "css"
+  ],
+  "memory_layers": [
+    "active",
+    "lineage",
+    "transit",
+    "experience"
+  ],
+  "default_architecture": "Auto-Select",
+  "circuit_architecture_map": {
+    "knowing": "DFF",
+    "understanding": "LSM",
+    "sensing": "MC",
+    "ego": "HMM",
+    "integration": "Meta-Controller"
+  },
+  "persistence": {
+    "artifacts_path": "./memory/artifacts.json",
+    "contracts_path": "./memory/contracts.json",
+    "evolution_log_path": "./memory/evolution-log.json",
+    "auto_save": true,
+    "save_interval_ms": 5000
+  },
+  "strategy_engine": {
+    "risk_thresholds": {
+      "low": 0.3,
+      "medium": 0.6,
+      "high": 0.8
+    },
+    "default_safe_transforms": [
+      "remove_console_logs",
+      "loose_equality",
+      "add_jsdoc"
+    ],
+    "risk_weights": {
+      "complexity": 0.4,
+      "size": 0.2,
+      "dependencies": 0.2,
+      "patterns": 0.2
+    },
+    "version": "1.4"
+  }
+}
