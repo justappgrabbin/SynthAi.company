@@ -1,0 +1,28 @@
+name: Frontend CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm install
+
+      - run: npm run build
+
+      - name: Check API URL
+        run: |
+          if [ -z "${{ secrets.NEXT_PUBLIC_SYNTHIA_SERVER_URL }}" ]; then
+            echo "Missing NEXT_PUBLIC_SYNTHIA_SERVER_URL"
+            exit 1
+          fi
